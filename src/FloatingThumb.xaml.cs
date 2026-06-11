@@ -20,13 +20,12 @@ public partial class FloatingThumb : Window
 
     private static readonly List<FloatingThumb> _open = new();
 
-    private static readonly TimeSpan DismissAfter = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan DismissAfter = TimeSpan.FromSeconds(3);
 
     private readonly string _path;
     private BitmapSource _img;
     private EditorWindow? _editor;
     private readonly DispatcherTimer _dismissTimer;
-    private bool _pinned;
     private bool _fading;
 
     public FloatingThumb(string path, BitmapSource image)
@@ -51,16 +50,9 @@ public partial class FloatingThumb : Window
         Card.ContextMenu!.Closed += (_, _) => RestartCountdown();
     }
 
-    /// <summary>Only an open editor keeps the thumbnail around indefinitely.</summary>
-    private void Pin()
-    {
-        _pinned = true;
-        _dismissTimer.Stop();
-    }
-
     private void RestartCountdown()
     {
-        if (_pinned || _fading || _draggingOut) return;
+        if (_fading || _draggingOut) return;
         _dismissTimer.Stop();
         if (!IsMouseOver)
             _dismissTimer.Start();
@@ -69,12 +61,7 @@ public partial class FloatingThumb : Window
     private void FadeOutAndClose()
     {
         _dismissTimer.Stop();
-        if (_pinned || _fading || _draggingOut) return;
-        if (_editor is { IsLoaded: true })
-        {
-            Pin();
-            return;
-        }
+        if (_fading || _draggingOut) return;
         if (IsMouseOver) return; // MouseLeave restarts the countdown
         _fading = true;
         var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(450));
@@ -168,22 +155,18 @@ public partial class FloatingThumb : Window
         Thumb.Clip = new System.Windows.Media.RectangleGeometry(
             new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 7, 7);
 
+    // Opening the editor consumes the thumbnail — it disappears immediately.
     private void OpenEditor()
     {
-        Pin();
         if (_editor is { IsLoaded: true })
         {
             _editor.Activate();
             return;
         }
         _editor = new EditorWindow(_path, _img);
-        _editor.ImageSaved += img =>
-        {
-            _img = img;
-            Thumb.Source = img;
-        };
         _editor.Show();
         _editor.Activate();
+        Close();
     }
 
     private void Edit_Click(object sender, RoutedEventArgs e) => OpenEditor();

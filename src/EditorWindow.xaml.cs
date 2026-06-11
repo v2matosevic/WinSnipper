@@ -60,11 +60,20 @@ public partial class EditorWindow : Window
 
         ThicknessSlider.ValueChanged += (_, e) => ThicknessLabel.Text = ((int)e.NewValue).ToString();
 
-        // Window opens maximized; once layout settles, fit the snip to the
-        // viewport (never above true 1:1 pixels).
+        // Compact window: wide enough that the full toolbar always fits
+        // (MinWidth), tall enough for the snip, capped to 85% of the work area.
+        var wa = SystemParameters.WorkArea;
+        Width = Math.Clamp(image.PixelWidth + 64, MinWidth, wa.Width * 0.85);
+        Height = Math.Clamp(image.PixelHeight + 220, MinHeight, wa.Height * 0.85);
+
+        // Once layout settles, fit the snip to the viewport (never above 1:1 pixels).
         Loaded += (_, _) => Dispatcher.BeginInvoke(FitToViewport,
             System.Windows.Threading.DispatcherPriority.Loaded);
     }
+
+    private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void CloseWindow_Click(object sender, RoutedEventArgs e) => Close();
 
     private void FitToViewport()
     {
@@ -80,10 +89,11 @@ public partial class EditorWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
-        // Dark title bar (DWMWA_USE_IMMERSIVE_DARK_MODE)
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        int dark = 1;
+        int dark = 1; // DWMWA_USE_IMMERSIVE_DARK_MODE
         _ = DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int));
+        int round = 2; // DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND
+        _ = DwmSetWindowAttribute(hwnd, 33, ref round, sizeof(int));
     }
 
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
@@ -133,8 +143,12 @@ public partial class EditorWindow : Window
         _color = (Color)swatch.Tag;
     }
 
-    private void UpdateTitle() =>
-        Title = $"{IOPath.GetFileName(_path)}{(_dirty ? " •" : "")} — WinSnipper";
+    private void UpdateTitle()
+    {
+        string name = $"{IOPath.GetFileName(_path)}{(_dirty ? " •" : "")}";
+        Title = $"{name} — WinSnipper";
+        TitleText.Text = name;
+    }
 
     private void SetZoom(double zoom)
     {
