@@ -40,7 +40,9 @@
                 Background="#FF1C1D22"
                 BorderBrush="#66FFFFFF"
                 BorderThickness="1"
-                MouseLeftButtonDown="Card_MouseLeftButtonDown">
+                MouseLeftButtonDown="Card_MouseLeftButtonDown"
+                MouseMove="Card_MouseMove"
+                MouseLeftButtonUp="Card_MouseLeftButtonUp">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.55"/>
             </Border.Effect>
@@ -70,7 +72,7 @@
                         Background="#E61B1E24"
                         Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal" Margin="2">
-                        <Button Content="⠿" ToolTip="Drag out as a file (into chats, folders…)"
+                        <Button Content="⠿" ToolTip="Move the thumbnail on screen"
                                 Style="{StaticResource ThumbBtn}" Cursor="SizeAll"
                                 PreviewMouseLeftButtonDown="Grip_Down"/>
                         <Button Content="✏" ToolTip="Edit (double-click also opens the editor)"

@@ -11,9 +11,10 @@ the bottom-right of the desktop → built-in annotation editor.
   the moment WinSnipper isn't running, the stock Windows behavior is back.
 - Snips are saved automatically to `Pictures\WinSnipper\` and copied to the clipboard.
 - Each snip appears as a **floating thumbnail** at the bottom-right (new ones stack upward):
-  - drag to move it anywhere
+  - **drag it into any app** — the drag carries the PNG as a real file (Explorer,
+    browsers, upload fields, chats, e-mail…), plus bitmap data for image-paste targets
   - **double-click** (or ✏) to open the editor
-  - **⠿ grip** — drag the snip out as a file into any app (chat, e-mail, Explorer…)
+  - **⠿ grip** — reposition the thumbnail on screen
   - right-click for copy / save-as / open / show-in-folder / dismiss
 - The **editor** has freehand draw, rectangle, ellipse, arrow, crop, 7 colors,
   stroke thickness, undo/redo (Ctrl+Z/Y), copy (Ctrl+C), save (Ctrl+S), save-as,
