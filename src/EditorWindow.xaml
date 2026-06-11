@@ -215,15 +215,23 @@
                     <Border Background="{StaticResource GroupBg}" CornerRadius="8" Padding="3">
                         <StackPanel Orientation="Horizontal">
                             <ToggleButton x:Name="BtnRect" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Rect" Content="▭  Rect" IsChecked="True" ToolTip="Rectangle"/>
+                                          Tag="Rect" Content="▭" FontSize="15" IsChecked="True" ToolTip="Rectangle"/>
                             <ToggleButton x:Name="BtnPen" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Pen" Content="✏  Draw" ToolTip="Freehand draw"/>
+                                          Tag="Pen" Content="✏" FontSize="15" ToolTip="Freehand draw"/>
                             <ToggleButton x:Name="BtnEllipse" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Ellipse" Content="◯  Ellipse" ToolTip="Ellipse"/>
+                                          Tag="Ellipse" Content="◯" FontSize="15" ToolTip="Ellipse"/>
                             <ToggleButton x:Name="BtnArrow" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Arrow" Content="↗  Arrow" ToolTip="Arrow"/>
+                                          Tag="Arrow" Content="↗" FontSize="15" ToolTip="Arrow"/>
+                            <ToggleButton x:Name="BtnText" Style="{StaticResource ToolToggle}" Click="Tool_Click"
+                                          Tag="Text" Content="T" FontSize="15" FontWeight="Bold"
+                                          ToolTip="Text — click to type, Enter to commit"/>
+                            <ToggleButton x:Name="BtnBadge" Style="{StaticResource ToolToggle}" Click="Tool_Click"
+                                          Tag="Badge" Content="①" FontSize="15" ToolTip="Step badge — click to drop 1, 2, 3…"/>
+                            <ToggleButton x:Name="BtnPixelate" Style="{StaticResource ToolToggle}" Click="Tool_Click"
+                                          Tag="Pixelate" Content="▦" FontSize="15"
+                                          ToolTip="Redact — pixelate a region (hide keys / secrets)"/>
                             <ToggleButton x:Name="BtnCrop" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Crop" Content="⬚  Crop" ToolTip="Crop — drag a region, Enter to apply"/>
+                                          Tag="Crop" Content="⬚" FontSize="15" ToolTip="Crop — drag a region, Enter to apply"/>
                         </StackPanel>
                     </Border>
 
@@ -242,6 +250,8 @@
                     <Button x:Name="BtnRedo" Style="{StaticResource ToolBtn}" Click="Redo_Click"
                             Content="↷" FontSize="16" Padding="9,3" ToolTip="Redo (Ctrl+Y)"/>
                     <Rectangle Width="1" Fill="#FF3A3D45" Margin="10,4"/>
+                    <Button x:Name="BtnOcr" Style="{StaticResource ToolBtn}" Click="Ocr_Click" Content="Copy Text"
+                            ToolTip="OCR — copy all readable text in the image to the clipboard"/>
                     <Button Style="{StaticResource ToolBtn}" Click="Copy_Click" Content="Copy" ToolTip="Copy to clipboard (Ctrl+C)"/>
                     <Button Style="{StaticResource ToolBtn}" Click="Save_Click" Content="Save" ToolTip="Save (Ctrl+S)"/>
                     <Button Style="{StaticResource ToolBtn}" Click="SaveAs_Click" Content="Save As…"/>

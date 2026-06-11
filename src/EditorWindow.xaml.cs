@@ -16,7 +16,7 @@ namespace WinSnipper;
 /// </summary>
 public partial class EditorWindow : Window
 {
-    private enum Tool { Pen, Rect, Ellipse, Arrow, Crop }
+    private enum Tool { Pen, Rect, Ellipse, Arrow, Text, Badge, Pixelate, Crop }
 
     private static readonly (string Name, Color Color)[] Palette =
     {
@@ -51,7 +51,7 @@ public partial class EditorWindow : Window
     {
         InitializeComponent();
         _path = path;
-        _toolButtons = new[] { BtnRect, BtnPen, BtnEllipse, BtnArrow, BtnCrop };
+        _toolButtons = new[] { BtnRect, BtnPen, BtnEllipse, BtnArrow, BtnText, BtnBadge, BtnPixelate, BtnCrop };
 
         SetImage(image);
         BuildSwatches();
@@ -174,6 +174,7 @@ public partial class EditorWindow : Window
         var newTool = Enum.Parse<Tool>((string)clicked.Tag);
         if (_tool == Tool.Crop && newTool != Tool.Crop)
             CancelCrop();
+        CommitText();
         _tool = newTool;
     }
 
@@ -183,9 +184,37 @@ public partial class EditorWindow : Window
     private void Ink_Down(object sender, MouseButtonEventArgs e)
     {
         var p = Clamp(e.GetPosition(Ink));
+
+        // Click-to-place tools: no drag phase.
+        if (_tool == Tool.Text)
+        {
+            CommitText();
+            StartText(p);
+            return;
+        }
+        if (_tool == Tool.Badge)
+        {
+            PlaceBadge(p);
+            return;
+        }
+
         _drawing = true;
         _start = p;
         Ink.CaptureMouse();
+
+        if (_tool == Tool.Pixelate)
+        {
+            _pixelatePreview = new Rectangle
+            {
+                Stroke = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
+                StrokeThickness = 1.5,
+                StrokeDashArray = new DoubleCollection { 4, 3 },
+            };
+            Canvas.SetLeft(_pixelatePreview, p.X);
+            Canvas.SetTop(_pixelatePreview, p.Y);
+            Ink.Children.Add(_pixelatePreview);
+            return;
+        }
 
         if (_tool == Tool.Crop)
         {
@@ -248,6 +277,15 @@ public partial class EditorWindow : Window
             UpdateCropVisuals(NormRect(_start, p));
             return;
         }
+        if (_tool == Tool.Pixelate && _pixelatePreview != null)
+        {
+            var pr = NormRect(_start, p);
+            Canvas.SetLeft(_pixelatePreview, pr.X);
+            Canvas.SetTop(_pixelatePreview, pr.Y);
+            _pixelatePreview.Width = pr.Width;
+            _pixelatePreview.Height = pr.Height;
+            return;
+        }
         if (_active == null) return;
 
         switch (_active)
@@ -288,6 +326,19 @@ public partial class EditorWindow : Window
                 PlaceCropActions(r);
                 CropActions.Visibility = Visibility.Visible;
             }
+            return;
+        }
+
+        if (_tool == Tool.Pixelate)
+        {
+            if (_pixelatePreview != null)
+            {
+                Ink.Children.Remove(_pixelatePreview);
+                _pixelatePreview = null;
+            }
+            var pr = NormRect(_start, p);
+            if (pr.Width >= 4 && pr.Height >= 4)
+                ApplyPixelate(pr);
             return;
         }
 
@@ -338,6 +389,182 @@ public partial class EditorWindow : Window
         }
         geo.Freeze();
         return geo;
+    }
+
+    // ---------- pixelate (redact) ----------
+
+    private Rectangle? _pixelatePreview;
+
+    /// <summary>
+    /// Bakes a pixelated copy of the region (image + annotations under it) and
+    /// lays it on the canvas as a normal undo-able element.
+    /// </summary>
+    private void ApplyPixelate(Rect r)
+    {
+        var composite = Composite();
+        var ir = new Int32Rect(
+            (int)Math.Round(r.X), (int)Math.Round(r.Y),
+            (int)Math.Round(r.Width), (int)Math.Round(r.Height));
+        ir.Width = Math.Min(ir.Width, composite.PixelWidth - ir.X);
+        ir.Height = Math.Min(ir.Height, composite.PixelHeight - ir.Y);
+        if (ir.Width < 2 || ir.Height < 2) return;
+
+        var crop = new CroppedBitmap(composite, ir);
+        int block = Math.Clamp((int)(Math.Min(ir.Width, ir.Height) / 12.0), 8, 32);
+        var small = new TransformedBitmap(crop, new ScaleTransform(1.0 / block, 1.0 / block));
+        small.Freeze();
+
+        // Tiny bitmap stretched back up with NearestNeighbor = pixelation.
+        var img = new Image
+        {
+            Source = small,
+            Width = ir.Width,
+            Height = ir.Height,
+            Stretch = Stretch.Fill,
+        };
+        RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.NearestNeighbor);
+        Canvas.SetLeft(img, ir.X);
+        Canvas.SetTop(img, ir.Y);
+        Ink.Children.Add(img);
+        _undo.Push(img);
+        _redo.Clear();
+        _dirty = true;
+        UpdateTitle();
+        UpdateUndoButtons();
+    }
+
+    // ---------- text ----------
+
+    private TextBox? _editBox;
+
+    private double AnnotationFontSize => 10 + ThicknessSlider.Value * 2;
+
+    private void StartText(Point p)
+    {
+        var box = new TextBox
+        {
+            Foreground = new SolidColorBrush(_color),
+            Background = new SolidColorBrush(Color.FromArgb(0x55, 0x00, 0x00, 0x00)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(1),
+            CaretBrush = Brushes.White,
+            FontSize = AnnotationFontSize,
+            FontWeight = FontWeights.SemiBold,
+            MinWidth = 40,
+            Padding = new Thickness(2),
+        };
+        Canvas.SetLeft(box, p.X);
+        Canvas.SetTop(box, p.Y);
+        box.LostFocus += (_, _) => CommitText();
+        Ink.Children.Add(box);
+        _editBox = box;
+        box.Focus();
+    }
+
+    private void CommitText()
+    {
+        if (_editBox is not { } box) return;
+        _editBox = null;
+        Ink.Children.Remove(box);
+
+        string text = box.Text.Trim();
+        if (text.Length == 0) return;
+
+        var tb = new TextBlock
+        {
+            Text = text,
+            Foreground = box.Foreground,
+            FontSize = box.FontSize,
+            FontWeight = FontWeights.SemiBold,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Colors.Black,
+                BlurRadius = 3,
+                ShadowDepth = 1,
+                Opacity = 0.85,
+            },
+        };
+        Canvas.SetLeft(tb, Canvas.GetLeft(box) + 3);
+        Canvas.SetTop(tb, Canvas.GetTop(box) + 3);
+        Ink.Children.Add(tb);
+        _undo.Push(tb);
+        _redo.Clear();
+        _dirty = true;
+        UpdateTitle();
+        UpdateUndoButtons();
+    }
+
+    private void CancelText()
+    {
+        if (_editBox is not { } box) return;
+        _editBox = null;
+        Ink.Children.Remove(box);
+    }
+
+    // ---------- step badges ----------
+
+    private void PlaceBadge(Point p)
+    {
+        int n = Ink.Children.OfType<Grid>().Count(g => Equals(g.Tag, "badge")) + 1;
+        double d = 22 + ThicknessSlider.Value * 2;
+        bool lightFill = (_color.R * 0.299 + _color.G * 0.587 + _color.B * 0.114) > 150;
+
+        var badge = new Grid { Width = d, Height = d, Tag = "badge" };
+        badge.Children.Add(new Ellipse
+        {
+            Fill = new SolidColorBrush(_color),
+            Stroke = lightFill ? Brushes.Black : Brushes.White,
+            StrokeThickness = 1.5,
+        });
+        badge.Children.Add(new TextBlock
+        {
+            Text = n.ToString(),
+            Foreground = lightFill ? Brushes.Black : Brushes.White,
+            FontWeight = FontWeights.Bold,
+            FontSize = d * 0.52,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        Canvas.SetLeft(badge, p.X - d / 2);
+        Canvas.SetTop(badge, p.Y - d / 2);
+        Ink.Children.Add(badge);
+        _undo.Push(badge);
+        _redo.Clear();
+        _dirty = true;
+        UpdateTitle();
+        UpdateUndoButtons();
+    }
+
+    // ---------- OCR ----------
+
+    private async void Ocr_Click(object sender, RoutedEventArgs e)
+    {
+        CommitText();
+        BtnOcr.IsEnabled = false;
+        StatusSize.Text = "Recognizing text…";
+        try
+        {
+            string? text = await Util.OcrAsync(Composite());
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                StatusSize.Text = text is null
+                    ? "OCR unavailable — no OCR language installed"
+                    : "No text found in the image";
+            }
+            else
+            {
+                Util.TrySetClipboardText(text);
+                StatusSize.Text = $"Copied {text.Length} characters of text";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusSize.Text = $"OCR failed: {ex.Message}";
+        }
+        finally
+        {
+            BtnOcr.IsEnabled = true;
+        }
     }
 
     // ---------- crop ----------
@@ -436,6 +663,7 @@ public partial class EditorWindow : Window
 
     private BitmapSource Composite()
     {
+        CommitText(); // pending text annotation joins the output
         var cropVis = CropLayer.Visibility;
         CropLayer.Visibility = Visibility.Collapsed;
         Surface.UpdateLayout();
@@ -486,6 +714,23 @@ public partial class EditorWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
+
+        // While typing a text annotation, only Enter/Esc are ours.
+        if (_editBox != null && ReferenceEquals(e.OriginalSource, _editBox))
+        {
+            if (e.Key == Key.Enter)
+            {
+                CommitText();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                CancelText();
+                e.Handled = true;
+            }
+            return;
+        }
+
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         switch (e.Key)
         {

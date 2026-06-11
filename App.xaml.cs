@@ -14,12 +14,11 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Headless smoke test: capture the screen, write a PNG, exit.
+        // Headless smoke test: capture the screen, write a PNG, OCR it, exit.
+        // Must stay async — blocking on WinRT from the STA thread deadlocks.
         if (e.Args.Contains("--selftest"))
         {
-            var (shot, _) = ScreenCapture.CaptureVirtualScreen();
-            Util.SavePng(shot, Path.Combine(Util.SnipsDir, "_selftest.png"));
-            Shutdown(0);
+            RunSelfTest();
             return;
         }
 
@@ -43,6 +42,21 @@ public partial class App : Application
         catch (Exception ex)
         {
             _tray.ShowError($"Could not install the Win+Shift+S hook: {ex.Message}\nUse the tray menu to snip.");
+        }
+    }
+
+    private async void RunSelfTest()
+    {
+        try
+        {
+            var (shot, _) = ScreenCapture.CaptureVirtualScreen();
+            Util.SavePng(shot, Path.Combine(Util.SnipsDir, "_selftest.png"));
+            string? ocr = await Util.OcrAsync(shot);
+            File.WriteAllText(Path.Combine(Util.SnipsDir, "_selftest.txt"), ocr ?? "(OCR unavailable)");
+        }
+        finally
+        {
+            Shutdown(0);
         }
     }
 

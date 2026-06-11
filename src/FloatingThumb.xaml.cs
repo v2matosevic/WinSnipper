@@ -182,6 +182,20 @@ public partial class FloatingThumb : Window
 
     private void Copy_Click(object sender, RoutedEventArgs e) => Util.TrySetClipboard(_img);
 
+    private async void CopyText_Click(object sender, RoutedEventArgs e)
+    {
+        _pinned = true; // OCR can take a moment — don't fade away mid-work
+        _dismissTimer.Stop();
+        try
+        {
+            string? text = await Util.OcrAsync(_img);
+            if (!string.IsNullOrWhiteSpace(text))
+                Util.TrySetClipboardText(text);
+        }
+        catch { }
+        Close();
+    }
+
     private void CopyPath_Click(object sender, RoutedEventArgs e)
     {
         try { Clipboard.SetText(_path); } catch { }
