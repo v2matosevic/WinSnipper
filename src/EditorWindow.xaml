@@ -253,8 +253,12 @@
                     <Button x:Name="BtnOcr" Style="{StaticResource ToolBtn}" Click="Ocr_Click" Content="Copy Text"
                             ToolTip="OCR — copy all readable text in the image to the clipboard"/>
                     <Button Style="{StaticResource ToolBtn}" Click="Copy_Click" Content="Copy" ToolTip="Copy to clipboard (Ctrl+C)"/>
-                    <Button Style="{StaticResource ToolBtn}" Click="Save_Click" Content="Save" ToolTip="Save (Ctrl+S)"/>
-                    <Button Style="{StaticResource ToolBtn}" Click="SaveAs_Click" Content="Save As…"/>
+                    <Button Style="{StaticResource ToolBtn}" Click="Save_Click" Content="&#xE74E;"
+                            FontFamily="Segoe MDL2 Assets" FontSize="15" Padding="9,6"
+                            ToolTip="Save (Ctrl+S) — overwrites the snip file"/>
+                    <Button Style="{StaticResource ToolBtn}" Click="SaveAs_Click" Content="&#xE792;"
+                            FontFamily="Segoe MDL2 Assets" FontSize="15" Padding="9,6"
+                            ToolTip="Save As… — save a copy somewhere else"/>
                     <Button Style="{StaticResource AccentBtn}" Click="CopyClose_Click" Content="Copy &amp; Close"
                             Margin="10,0,0,0" ToolTip="Copy to clipboard, save, and close (Ctrl+Enter)"/>
                 </StackPanel>
