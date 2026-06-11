@@ -680,8 +680,6 @@ public partial class EditorWindow : Window
         return rtb;
     }
 
-    private void Copy_Click(object sender, RoutedEventArgs e) => Util.TrySetClipboard(Composite());
-
     private void CopyClose_Click(object sender, RoutedEventArgs e) => CopyAndClose();
 
     private void CopyAndClose()

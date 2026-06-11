@@ -252,7 +252,6 @@
                     <Rectangle Width="1" Fill="#FF3A3D45" Margin="10,4"/>
                     <Button x:Name="BtnOcr" Style="{StaticResource ToolBtn}" Click="Ocr_Click" Content="Copy Text"
                             ToolTip="OCR — copy all readable text in the image to the clipboard"/>
-                    <Button Style="{StaticResource ToolBtn}" Click="Copy_Click" Content="Copy" ToolTip="Copy to clipboard (Ctrl+C)"/>
                     <Button Style="{StaticResource ToolBtn}" Click="Save_Click" Content="&#xE74E;"
                             FontFamily="Segoe MDL2 Assets" FontSize="15" Padding="9,6"
                             ToolTip="Save (Ctrl+S) — overwrites the snip file"/>
