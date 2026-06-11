@@ -19,7 +19,7 @@ public partial class FloatingThumb : Window
 
     private static readonly List<FloatingThumb> _open = new();
 
-    private static readonly TimeSpan DismissAfter = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan DismissAfter = TimeSpan.FromSeconds(4);
 
     private readonly string _path;
     private BitmapSource _img;
@@ -42,25 +42,36 @@ public partial class FloatingThumb : Window
         _dismissTimer = new DispatcherTimer { Interval = DismissAfter };
         _dismissTimer.Tick += (_, _) => FadeOutAndClose();
         _dismissTimer.Start();
-        Card.ContextMenuOpening += (_, _) => Pin();
+        // Keep it alive while the context menu is open; resume the countdown after.
+        Card.ContextMenuOpening += (_, _) => _dismissTimer.Stop();
+        Card.ContextMenu!.Closed += (_, _) => RestartCountdown();
     }
 
-    /// <summary>Any interaction keeps the thumbnail around until dismissed manually.</summary>
+    /// <summary>Only an open editor keeps the thumbnail around indefinitely.</summary>
     private void Pin()
     {
         _pinned = true;
         _dismissTimer.Stop();
     }
 
+    private void RestartCountdown()
+    {
+        if (_pinned || _fading || _draggingOut) return;
+        _dismissTimer.Stop();
+        if (!IsMouseOver)
+            _dismissTimer.Start();
+    }
+
     private void FadeOutAndClose()
     {
         _dismissTimer.Stop();
-        if (_pinned || _fading) return;
-        if (IsMouseOver || _editor is { IsLoaded: true })
+        if (_pinned || _fading || _draggingOut) return;
+        if (_editor is { IsLoaded: true })
         {
             Pin();
             return;
         }
+        if (IsMouseOver) return; // MouseLeave restarts the countdown
         _fading = true;
         var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(450));
         fade.Completed += (_, _) => Close();
@@ -96,6 +107,7 @@ public partial class FloatingThumb : Window
     }
 
     private bool _maybeDrag;
+    private bool _draggingOut;
     private Point _dragStart;
 
     // Dragging the card drags the snip out as a real file (Explorer, browsers,
@@ -103,7 +115,6 @@ public partial class FloatingThumb : Window
     // double-click-to-edit still works.
     private void Card_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        Pin();
         if (e.ClickCount == 2)
         {
             _maybeDrag = false;
@@ -125,7 +136,16 @@ public partial class FloatingThumb : Window
         _maybeDrag = false;
         var data = new DataObject(DataFormats.FileDrop, new[] { _path });
         data.SetImage(_img); // for targets that accept bitmaps rather than files
-        DragDrop.DoDragDrop(this, data, DragDropEffects.Copy);
+        _draggingOut = true;
+        try
+        {
+            DragDrop.DoDragDrop(this, data, DragDropEffects.Copy);
+        }
+        finally
+        {
+            _draggingOut = false;
+            RestartCountdown();
+        }
     }
 
     private void Card_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => _maybeDrag = false;
@@ -134,7 +154,6 @@ public partial class FloatingThumb : Window
     private void Grip_Down(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        Pin();
         _userMoved = true;
         try { DragMove(); } catch { /* released outside a drag */ }
     }
@@ -192,18 +211,16 @@ public partial class FloatingThumb : Window
         _dismissTimer.Stop();
         if (_fading)
         {
-            // caught it mid-fade — restore and keep it
+            // caught it mid-fade — restore it; the countdown restarts on leave
             _fading = false;
             BeginAnimation(OpacityProperty, null);
             Opacity = 1;
-            Pin();
         }
     }
 
     private void Win_MouseLeave(object sender, MouseEventArgs e)
     {
         ToolsBar.Visibility = Visibility.Collapsed;
-        if (!_pinned && !_fading)
-            _dismissTimer.Start();
+        RestartCountdown();
     }
 }
