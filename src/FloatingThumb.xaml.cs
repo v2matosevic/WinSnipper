@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using IOPath = System.IO.Path;
 
 namespace WinSnipper;
@@ -17,10 +19,15 @@ public partial class FloatingThumb : Window
 
     private static readonly List<FloatingThumb> _open = new();
 
+    private static readonly TimeSpan DismissAfter = TimeSpan.FromSeconds(6);
+
     private readonly string _path;
     private BitmapSource _img;
     private bool _userMoved;
     private EditorWindow? _editor;
+    private readonly DispatcherTimer _dismissTimer;
+    private bool _pinned;
+    private bool _fading;
 
     public FloatingThumb(string path, BitmapSource image)
     {
@@ -31,6 +38,33 @@ public partial class FloatingThumb : Window
         Card.ToolTip = $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nDrag into any app to drop the file · double-click to edit";
         Loaded += (_, _) => PositionStacked();
         Closed += (_, _) => _open.Remove(this);
+
+        _dismissTimer = new DispatcherTimer { Interval = DismissAfter };
+        _dismissTimer.Tick += (_, _) => FadeOutAndClose();
+        _dismissTimer.Start();
+        Card.ContextMenuOpening += (_, _) => Pin();
+    }
+
+    /// <summary>Any interaction keeps the thumbnail around until dismissed manually.</summary>
+    private void Pin()
+    {
+        _pinned = true;
+        _dismissTimer.Stop();
+    }
+
+    private void FadeOutAndClose()
+    {
+        _dismissTimer.Stop();
+        if (_pinned || _fading) return;
+        if (IsMouseOver || _editor is { IsLoaded: true })
+        {
+            Pin();
+            return;
+        }
+        _fading = true;
+        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(450));
+        fade.Completed += (_, _) => Close();
+        BeginAnimation(OpacityProperty, fade);
     }
 
     public void ShowStacked()
@@ -69,6 +103,7 @@ public partial class FloatingThumb : Window
     // double-click-to-edit still works.
     private void Card_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        Pin();
         if (e.ClickCount == 2)
         {
             _maybeDrag = false;
@@ -99,12 +134,14 @@ public partial class FloatingThumb : Window
     private void Grip_Down(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        Pin();
         _userMoved = true;
         try { DragMove(); } catch { /* released outside a drag */ }
     }
 
     private void OpenEditor()
     {
+        Pin();
         if (_editor is { IsLoaded: true })
         {
             _editor.Activate();
@@ -149,7 +186,24 @@ public partial class FloatingThumb : Window
 
     private void CloseItem_Click(object sender, RoutedEventArgs e) => Close();
 
-    private void Win_MouseEnter(object sender, MouseEventArgs e) => ToolsBar.Visibility = Visibility.Visible;
+    private void Win_MouseEnter(object sender, MouseEventArgs e)
+    {
+        ToolsBar.Visibility = Visibility.Visible;
+        _dismissTimer.Stop();
+        if (_fading)
+        {
+            // caught it mid-fade — restore and keep it
+            _fading = false;
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+            Pin();
+        }
+    }
 
-    private void Win_MouseLeave(object sender, MouseEventArgs e) => ToolsBar.Visibility = Visibility.Collapsed;
+    private void Win_MouseLeave(object sender, MouseEventArgs e)
+    {
+        ToolsBar.Visibility = Visibility.Collapsed;
+        if (!_pinned && !_fading)
+            _dismissTimer.Start();
+    }
 }
