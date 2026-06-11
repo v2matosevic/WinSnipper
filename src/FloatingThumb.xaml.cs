@@ -28,7 +28,7 @@ public partial class FloatingThumb : Window
         _path = path;
         _img = image;
         Thumb.Source = image;
-        Card.ToolTip = $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nDouble-click to edit · drag to move";
+        Card.ToolTip = $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nDrag into any app to drop the file · double-click to edit";
         Loaded += (_, _) => PositionStacked();
         Closed += (_, _) => _open.Remove(this);
     }
@@ -61,22 +61,46 @@ public partial class FloatingThumb : Window
         if (Top < wa.Top) Top = wa.Top + Gap; // screen full of thumbs — just overlap at top
     }
 
+    private bool _maybeDrag;
+    private Point _dragStart;
+
+    // Dragging the card drags the snip out as a real file (Explorer, browsers,
+    // upload fields, chats). The drag starts only past the system threshold so
+    // double-click-to-edit still works.
     private void Card_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ClickCount == 2)
         {
+            _maybeDrag = false;
             OpenEditor();
             return;
         }
-        _userMoved = true;
-        try { DragMove(); } catch { /* released outside a drag */ }
+        _maybeDrag = true;
+        _dragStart = e.GetPosition(this);
     }
 
+    private void Card_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_maybeDrag || e.LeftButton != MouseButtonState.Pressed) return;
+        var p = e.GetPosition(this);
+        if (Math.Abs(p.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(p.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return;
+
+        _maybeDrag = false;
+        var data = new DataObject(DataFormats.FileDrop, new[] { _path });
+        data.SetImage(_img); // for targets that accept bitmaps rather than files
+        DragDrop.DoDragDrop(this, data, DragDropEffects.Copy);
+    }
+
+    private void Card_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => _maybeDrag = false;
+
+    // The ⠿ grip repositions the thumbnail on screen.
     private void Grip_Down(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        var data = new DataObject(DataFormats.FileDrop, new[] { _path });
-        DragDrop.DoDragDrop(this, data, DragDropEffects.Copy);
+        _userMoved = true;
+        try { DragMove(); } catch { /* released outside a drag */ }
     }
 
     private void OpenEditor()
