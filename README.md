@@ -6,7 +6,8 @@ built-in **Win+Shift+S** snip with a tighter flow:
 
 **snip → auto-save + clipboard → floating thumbnail → annotate → paste anywhere.**
 
-Single ~200 KB exe. .NET 8 + WPF, zero external dependencies.
+Single-file exe. .NET 8 + WPF, no external packages (the only sizable piece is
+the Windows SDK projection that powers built-in OCR).
 
 ## Flow
 
@@ -19,10 +20,13 @@ Single ~200 KB exe. .NET 8 + WPF, zero external dependencies.
    - right-click → pin / copy / save-as / open / show-in-folder
    - untouched → fades away on its own
 4. The **editor** (frameless, dark, compact): rectangle, freehand, ellipse,
-   arrow, crop, 7 colors, stroke width, undo/redo, Ctrl+wheel zoom.
-   **Copy & Close** (Ctrl+Enter) puts the annotated image on the clipboard and
-   exits — no confirmation dialogs, ever. Closing always saves silently and
-   refreshes the clipboard, so what you paste is what you drew.
+   arrow, **text**, **numbered step badges** (1→2→3), **redact/pixelate**
+   (hide API keys and secrets before sharing), crop, 7 colors, stroke width,
+   undo/redo, Ctrl+wheel zoom. **Copy Text** runs Windows OCR over the snip and
+   puts the recognized text on the clipboard. **Copy & Close** (Ctrl+Enter)
+   puts the annotated image on the clipboard and exits — no confirmation
+   dialogs, ever. Closing always saves silently and refreshes the clipboard,
+   so what you paste is what you drew.
 
 ## Why the hotkey override works
 
@@ -59,13 +63,10 @@ crops are pixel-exact on scaled and mixed-DPI displays.
 
 Ideas queued up — PRs welcome:
 
-- **Redact / pixelate tool** — blur API keys and secrets before sharing a screenshot with an AI chat
-- **Text annotations** and numbered step badges (1→2→3) for bug reports
-- **OCR** — copy the *text* out of any snip (Windows.Media.Ocr)
 - **Color picker** — grab the hex of any pixel on screen
-- **Pin to screen** — promote a thumbnail to a permanent always-on-top reference image
 - **Snip history** — browse recent snips from the tray
 - Highlighter pen, line tool
+- Re-editable annotations (select / move / delete individual shapes)
 - Optional Desktop Duplication capture path for exclusive-fullscreen games
 
 ## License
