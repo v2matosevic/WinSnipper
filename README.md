@@ -26,6 +26,33 @@ Two flavors:
 Both need the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
 Tick *Start with Windows* in Settings if it earns a permanent spot.
 
+Or via winget (submission pending review):
+
+```powershell
+winget install winsnipper
+```
+
+### 🤖 Install via an AI agent
+
+Using Claude Code, Copilot, or any agent with shell access? Paste this:
+
+> Install WinSnipper for me: download the latest release from
+> https://github.com/v2matosevic/WinSnipper/releases/latest — the asset is
+> `WinSnipper.exe` (lite) or `WinSnipper-OCR.exe` (adds OCR text copy; I'll tell
+> you which I want) — into `%LOCALAPPDATA%\WinSnipper\`, make sure the .NET 8
+> Desktop Runtime is installed (`winget install Microsoft.DotNet.DesktopRuntime.8`),
+> then run the exe. It lives in the tray; Win+Shift+S takes a screenshot.
+> If I ask for autostart, enable "Start with Windows" is in its tray Settings.
+
+Equivalent script:
+
+```powershell
+$dir = "$env:LOCALAPPDATA\WinSnipper"
+New-Item -ItemType Directory -Force $dir | Out-Null
+Invoke-WebRequest "https://github.com/v2matosevic/WinSnipper/releases/latest/download/WinSnipper.exe" -OutFile "$dir\WinSnipper.exe"
+& "$dir\WinSnipper.exe"
+```
+
 ## Flow
 
 1. Press **Win+Shift+S** (rebindable) — screen freezes, drag a region, done.
