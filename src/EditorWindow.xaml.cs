@@ -57,6 +57,8 @@ public partial class EditorWindow : Window
         BuildSwatches();
         UpdateTitle();
         UpdateUndoButtons();
+        if (!Util.OcrSupported)
+            BtnOcr.Visibility = Visibility.Collapsed;
 
         ThicknessSlider.ValueChanged += (_, e) => ThicknessLabel.Text = ((int)e.NewValue).ToString();
 

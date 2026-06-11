@@ -10,13 +10,20 @@ built-in **Win+Shift+S** snip with a tighter flow:
 
 **snip → auto-save + clipboard → floating thumbnail → annotate → paste anywhere.**
 
-Single-file exe. .NET 8 + WPF, no external packages (the only sizable piece is
-the Windows SDK projection that powers built-in OCR).
+Single-file exe. .NET 8 + WPF, no external packages. The core app is ~0.25 MB;
+OCR ships as a separate flavor so the lightweight build stays lightweight.
 
 ## Install
 
-Grab `WinSnipper.exe` from [Releases](../../releases) and run it — it lives in
-the tray. Needs the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
+Grab a build from [Releases](../../releases) and run it — it lives in the tray.
+Two flavors:
+
+| File | Size | What you get |
+|---|---|---|
+| `WinSnipper.exe` | ~0.25 MB | The full screenshot flow — snip, thumbnail, annotate, redact |
+| `WinSnipper-OCR.exe` | ~25 MB | Everything above + **Copy Text** (Windows OCR) |
+
+Both need the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
 Tick *Start with Windows* in Settings if it earns a permanent spot.
 
 ## Flow
@@ -58,6 +65,7 @@ Stored in `%APPDATA%\WinSnipper\settings.json`.
 
 ## OCR languages
 
+OCR lives in the `WinSnipper-OCR.exe` flavor (the lite build hides all OCR UI).
 "Copy Text" uses Windows' built-in OCR. It picks the best engine it can find:
 Croatian → your profile languages → English → anything installed.
 
@@ -76,9 +84,11 @@ improves accuracy on terminal-size text.
 ## Build
 
 ```powershell
-dotnet build -c Release                     # dev build
+dotnet build -c Release                     # dev build (lite)
 dotnet publish -c Release -r win-x64 --self-contained false `
-  /p:PublishSingleFile=true -o dist         # single-file exe (needs .NET 8 runtime)
+  /p:PublishSingleFile=true -o dist/lite    # lite single-file exe
+dotnet publish -c Release -r win-x64 --self-contained false `
+  /p:PublishSingleFile=true /p:EnableOcr=true -o dist/ocr   # OCR flavor
 ```
 
 `tools/gen-icon.ps1` regenerates `assets/icon.ico`.
