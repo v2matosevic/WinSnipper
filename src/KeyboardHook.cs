@@ -15,7 +15,6 @@ public sealed class KeyboardHook : IDisposable
     private const int WM_KEYDOWN = 0x0100;
     private const int WM_SYSKEYDOWN = 0x0104;
 
-    private const int VK_S = 0x53;
     private const int VK_SHIFT = 0x10;
     private const int VK_CONTROL = 0x11;
     private const int VK_MENU = 0x12;
@@ -29,6 +28,15 @@ public sealed class KeyboardHook : IDisposable
     private bool _disposed;
 
     public event Action? HotkeyPressed;
+
+    /// <summary>
+    /// While set, every key-down is routed here first (used by the settings
+    /// window to record a new hotkey, including Win-combos the OS would
+    /// otherwise handle). Return true to swallow the keystroke.
+    /// </summary>
+    public static Func<uint, bool>? CaptureInterceptor;
+
+    public static bool IsKeyDown(int vk) => IsDown(vk);
 
     public KeyboardHook()
     {
@@ -46,16 +54,26 @@ public sealed class KeyboardHook : IDisposable
             if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
             {
                 var data = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-                if (data.vkCode == VK_S
-                    && IsDown(VK_SHIFT)
-                    && (IsDown(VK_LWIN) || IsDown(VK_RWIN))
-                    && !IsDown(VK_CONTROL)
-                    && !IsDown(VK_MENU))
+
+                if (CaptureInterceptor is { } capture && capture(data.vkCode))
+                    return (IntPtr)1;
+
+                var s = Settings.Current;
+                bool win = IsDown(VK_LWIN) || IsDown(VK_RWIN);
+                if (data.vkCode == s.HotkeyVk
+                    && win == s.ModWin
+                    && IsDown(VK_SHIFT) == s.ModShift
+                    && IsDown(VK_CONTROL) == s.ModCtrl
+                    && IsDown(VK_MENU) == s.ModAlt
+                    && (s.ModWin || s.ModShift || s.ModCtrl || s.ModAlt))
                 {
-                    // The OS saw Win-down but will never see the S we swallow;
-                    // without a dummy keystroke it would open the Start menu on Win-up.
-                    keybd_event(0xFF, 0, 0, UIntPtr.Zero);
-                    keybd_event(0xFF, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    if (s.ModWin)
+                    {
+                        // The OS saw Win-down but will never see the key we swallow;
+                        // without a dummy keystroke it would open the Start menu on Win-up.
+                        keybd_event(0xFF, 0, 0, UIntPtr.Zero);
+                        keybd_event(0xFF, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    }
 
                     HotkeyPressed?.Invoke();
                     return (IntPtr)1; // swallow

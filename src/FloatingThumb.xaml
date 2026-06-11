@@ -53,6 +53,7 @@
             </Border.Effect>
             <Border.ContextMenu>
                 <ContextMenu>
+                    <MenuItem Header="Pin (keep on screen)" Click="Pin_Click"/>
                     <MenuItem Header="Edit" Click="Edit_Click"/>
                     <MenuItem Header="Copy image" Click="Copy_Click"/>
                     <MenuItem Header="Copy file path" Click="CopyPath_Click"/>

@@ -20,7 +20,7 @@ public partial class FloatingThumb : Window
 
     private static readonly List<FloatingThumb> _open = new();
 
-    private static readonly TimeSpan DismissAfter = TimeSpan.FromSeconds(3);
+    private static TimeSpan DismissAfter => TimeSpan.FromSeconds(Settings.Current.DismissSeconds);
 
     private readonly string _path;
     private BitmapSource _img;
@@ -50,9 +50,18 @@ public partial class FloatingThumb : Window
         Card.ContextMenu!.Closed += (_, _) => RestartCountdown();
     }
 
+    private bool _pinned;
+
+    // Context menu "Pin" — keep this thumbnail on screen until closed manually.
+    private void Pin_Click(object sender, RoutedEventArgs e)
+    {
+        _pinned = true;
+        _dismissTimer.Stop();
+    }
+
     private void RestartCountdown()
     {
-        if (_fading || _draggingOut) return;
+        if (_pinned || _fading || _draggingOut) return;
         _dismissTimer.Stop();
         if (!IsMouseOver)
             _dismissTimer.Start();
@@ -61,7 +70,7 @@ public partial class FloatingThumb : Window
     private void FadeOutAndClose()
     {
         _dismissTimer.Stop();
-        if (_fading || _draggingOut) return;
+        if (_pinned || _fading || _draggingOut) return;
         if (IsMouseOver) return; // MouseLeave restarts the countdown
         _fading = true;
         var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(450));
