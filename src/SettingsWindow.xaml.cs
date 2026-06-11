@@ -19,6 +19,7 @@ public partial class SettingsWindow : Window
         SaveDirText.Text = _draft.SaveDir;
         ClipboardCheck.IsChecked = _draft.CopyToClipboard;
         StartupCheck.IsChecked = StartupManager.IsEnabled();
+        RefreshOcrStatus();
 
         Closed += (_, _) => StopCapture();
     }
@@ -84,6 +85,41 @@ public partial class SettingsWindow : Window
         _draft.ModAlt = alt;
         Dispatcher.BeginInvoke(StopCapture);
         return true;
+    }
+
+    // ---------- OCR ----------
+
+    private void RefreshOcrStatus()
+    {
+        string? engine = Util.OcrEngineLanguage();
+        string userTag = Util.UserLanguageTag();
+
+        if (engine is null)
+        {
+            OcrStatusText.Text = "No OCR language installed — Copy Text won't work";
+            OcrInstallBtn.Content = $"Install {userTag}…";
+            OcrInstallBtn.Visibility = Visibility.Visible;
+            OcrHint.Visibility = Visibility.Visible;
+        }
+        else if (!Util.UserLanguageOcrInstalled())
+        {
+            OcrStatusText.Text = $"Using: {engine} (your language's OCR pack is missing)";
+            OcrInstallBtn.Content = $"Install {userTag}…";
+            OcrInstallBtn.Visibility = Visibility.Visible;
+            OcrHint.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            OcrStatusText.Text = $"Using: {engine}";
+            OcrInstallBtn.Visibility = Visibility.Collapsed;
+            OcrHint.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void OcrInstall_Click(object sender, RoutedEventArgs e)
+    {
+        Util.LaunchOcrPackInstall(Util.UserLanguageTag());
+        OcrStatusText.Text = "Installing — approve the admin prompt, then restart WinSnipper";
     }
 
     // ---------- fields ----------
