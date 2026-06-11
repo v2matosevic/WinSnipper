@@ -1,10 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Two flavors from one codebase:
+      default            -> lite build, plain net8.0-windows, tiny exe, no OCR
+      /p:EnableOcr=true  -> windows10 TFM exposes WinRT (Windows.Media.Ocr); adds ~24 MB
+  -->
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <!-- windows10 TFM exposes WinRT (Windows.Media.Ocr) for the OCR feature -->
+    <EnableOcr Condition="'$(EnableOcr)' == ''">false</EnableOcr>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(EnableOcr)' == 'true'">
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <DefineConstants>$(DefineConstants);OCR</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EnableOcr)' != 'true'">
+    <TargetFramework>net8.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
@@ -13,7 +28,7 @@
     <AssemblyName>WinSnipper</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <Authors>Marko Matošević</Authors>
     <Company>Version2</Company>
     <Description>Ultra-lightweight Win+Shift+S replacement: snip, floating thumbnail, annotate, OCR, paste.</Description>

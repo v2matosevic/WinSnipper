@@ -91,6 +91,12 @@ public partial class SettingsWindow : Window
 
     private void RefreshOcrStatus()
     {
+        if (!Util.OcrSupported)
+        {
+            OcrSection.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         string? engine = Util.OcrEngineLanguage();
         string userTag = Util.UserLanguageTag();
 

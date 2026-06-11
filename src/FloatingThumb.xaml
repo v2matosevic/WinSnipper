@@ -56,7 +56,7 @@
                     <MenuItem Header="Pin (keep on screen)" Click="Pin_Click"/>
                     <MenuItem Header="Edit" Click="Edit_Click"/>
                     <MenuItem Header="Copy image" Click="Copy_Click"/>
-                    <MenuItem Header="Copy text (OCR)" Click="CopyText_Click"/>
+                    <MenuItem x:Name="OcrMenuItem" Header="Copy text (OCR)" Click="CopyText_Click"/>
                     <MenuItem Header="Copy file path" Click="CopyPath_Click"/>
                     <MenuItem Header="Save as…" Click="SaveAs_Click"/>
                     <Separator/>

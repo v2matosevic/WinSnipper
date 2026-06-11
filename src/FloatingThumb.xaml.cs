@@ -35,6 +35,8 @@ public partial class FloatingThumb : Window
         _img = image;
         Thumb.Source = image;
         Card.ToolTip = $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nClick to edit · drag into any app to drop the file";
+        if (!Util.OcrSupported)
+            OcrMenuItem.Visibility = Visibility.Collapsed;
         Loaded += (_, _) =>
         {
             PositionStacked();

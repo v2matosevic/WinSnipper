@@ -70,6 +70,14 @@ public static class Util
         }
     }
 
+    /// <summary>True in the OCR flavor of the build (/p:EnableOcr=true).</summary>
+#if OCR
+    public static readonly bool OcrSupported = true;
+#else
+    public static readonly bool OcrSupported = false;
+#endif
+
+#if OCR
     /// <summary>
     /// Runs Windows' built-in OCR over the image and returns the recognized
     /// text (lines joined with newlines), or null if no OCR language is available.
@@ -132,21 +140,6 @@ public static class Util
         catch { return null; }
     }
 
-    /// <summary>The user's primary language as a specific culture tag (e.g. "hr-HR").</summary>
-    public static string UserLanguageTag()
-    {
-        try
-        {
-            var culture = System.Globalization.CultureInfo.CurrentUICulture;
-            if (culture.Name.Contains('-')) return culture.Name;
-            return System.Globalization.CultureInfo.CreateSpecificCulture(culture.Name).Name;
-        }
-        catch
-        {
-            return "en-US";
-        }
-    }
-
     /// <summary>True if an OCR pack for the user's primary language is available.</summary>
     public static bool UserLanguageOcrInstalled()
     {
@@ -159,6 +152,27 @@ public static class Util
         catch
         {
             return false;
+        }
+    }
+#else
+    // Lite build stubs — UI hides OCR affordances when OcrSupported is false.
+    public static Task<string?> OcrAsync(BitmapSource image) => Task.FromResult<string?>(null);
+    public static string? OcrEngineLanguage() => null;
+    public static bool UserLanguageOcrInstalled() => false;
+#endif
+
+    /// <summary>The user's primary language as a specific culture tag (e.g. "hr-HR").</summary>
+    public static string UserLanguageTag()
+    {
+        try
+        {
+            var culture = System.Globalization.CultureInfo.CurrentUICulture;
+            if (culture.Name.Contains('-')) return culture.Name;
+            return System.Globalization.CultureInfo.CreateSpecificCulture(culture.Name).Name;
+        }
+        catch
+        {
+            return "en-US";
         }
     }
 

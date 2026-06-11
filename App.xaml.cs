@@ -51,7 +51,7 @@ public partial class App : Application
         {
             var (shot, _) = ScreenCapture.CaptureVirtualScreen();
             Util.SavePng(shot, Path.Combine(Util.SnipsDir, "_selftest.png"));
-            string? ocr = await Util.OcrAsync(shot);
+            string? ocr = Util.OcrSupported ? await Util.OcrAsync(shot) : "(OCR not in this build)";
             File.WriteAllText(Path.Combine(Util.SnipsDir, "_selftest.txt"), ocr ?? "(OCR unavailable)");
         }
         finally

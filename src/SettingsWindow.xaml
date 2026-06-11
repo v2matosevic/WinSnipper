@@ -148,19 +148,21 @@
                 </Border>
             </DockPanel>
 
-            <!-- OCR -->
-            <TextBlock Style="{StaticResource Label}" Text="Text recognition (OCR)" Margin="0,18,0,0"/>
-            <DockPanel Margin="0,7,0,0">
-                <Button x:Name="OcrInstallBtn" Style="{StaticResource FlatBtn}" Content="Install…"
-                        Click="OcrInstall_Click" DockPanel.Dock="Right" Margin="8,0,0,0"
-                        Visibility="Collapsed"/>
-                <Border Background="{StaticResource GroupBg}" CornerRadius="7" Padding="10,7">
-                    <TextBlock x:Name="OcrStatusText" Foreground="{StaticResource TextDim}" FontSize="12.5"
-                               TextTrimming="CharacterEllipsis"/>
-                </Border>
-            </DockPanel>
-            <TextBlock x:Name="OcrHint" Style="{StaticResource Hint}" Visibility="Collapsed"
-                       Text="Installing adds the Windows OCR pack for your language (admin prompt, ~1 min). Restart WinSnipper afterwards."/>
+            <!-- OCR (collapsed entirely in the lite build) -->
+            <StackPanel x:Name="OcrSection">
+                <TextBlock Style="{StaticResource Label}" Text="Text recognition (OCR)" Margin="0,18,0,0"/>
+                <DockPanel Margin="0,7,0,0">
+                    <Button x:Name="OcrInstallBtn" Style="{StaticResource FlatBtn}" Content="Install…"
+                            Click="OcrInstall_Click" DockPanel.Dock="Right" Margin="8,0,0,0"
+                            Visibility="Collapsed"/>
+                    <Border Background="{StaticResource GroupBg}" CornerRadius="7" Padding="10,7">
+                        <TextBlock x:Name="OcrStatusText" Foreground="{StaticResource TextDim}" FontSize="12.5"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </Border>
+                </DockPanel>
+                <TextBlock x:Name="OcrHint" Style="{StaticResource Hint}" Visibility="Collapsed"
+                           Text="Installing adds the Windows OCR pack for your language (admin prompt, ~1 min). Restart WinSnipper afterwards."/>
+            </StackPanel>
 
             <!-- toggles -->
             <CheckBox x:Name="ClipboardCheck" Content="Copy every snip to the clipboard automatically" Margin="0,18,0,0"/>

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0 — 2026-06-12
+
+- **Two build flavors**: lite `WinSnipper.exe` (~0.25 MB, the full screenshot
+  flow) and `WinSnipper-OCR.exe` (~25 MB, adds Copy Text). One codebase,
+  `/p:EnableOcr=true` switches; the lite build hides all OCR UI
+- Settings shows OCR engine status + one-click elevated install of the
+  user-language OCR pack (OCR flavor only)
+- Copy Text closes the editor (copy → save → close, like Copy & Close)
+- Save / Save As are distinct icon buttons
+
 ## 0.3.0 — 2026-06-12
 
 - **Redact/pixelate tool** — drag a region to hide API keys/secrets before sharing
