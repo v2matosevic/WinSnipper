@@ -54,6 +54,25 @@ public static class Util
         }
     }
 
+    /// <summary>Appends to %APPDATA%\WinSnipper\crash.log (trimmed at ~1 MB).</summary>
+    public static void LogCrash(string source, Exception ex)
+    {
+        try
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WinSnipper");
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, "crash.log");
+            if (File.Exists(path) && new FileInfo(path).Length > 1_000_000)
+                File.Delete(path);
+            File.AppendAllText(path,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {source}{Environment.NewLine}{ex}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch
+        {
+            // logging must never crash the crash handler
+        }
+    }
+
     public static void TrySetClipboardText(string text)
     {
         for (int i = 0; i < 4; i++)

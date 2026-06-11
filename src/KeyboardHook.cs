@@ -24,7 +24,7 @@ public sealed class KeyboardHook : IDisposable
     private const uint KEYEVENTF_KEYUP = 0x0002;
 
     private readonly LowLevelKeyboardProc _proc; // kept as a field so GC never collects the delegate
-    private readonly IntPtr _hookId;
+    private IntPtr _hookId;
     private bool _disposed;
 
     public event Action? HotkeyPressed;
@@ -84,6 +84,19 @@ public sealed class KeyboardHook : IDisposable
     }
 
     private static bool IsDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
+
+    /// <summary>
+    /// Windows silently removes LL hooks whose callback ever exceeds the hook
+    /// timeout (common after sleep or heavy load) — the hotkey then dies until
+    /// restart. Re-arming periodically and on resume keeps it alive.
+    /// </summary>
+    public void Reinstall()
+    {
+        if (_disposed) return;
+        if (_hookId != IntPtr.Zero)
+            UnhookWindowsHookEx(_hookId);
+        _hookId = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
+    }
 
     public void Dispose()
     {
