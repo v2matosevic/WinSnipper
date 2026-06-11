@@ -73,10 +73,10 @@
     <DockPanel>
         <Border DockPanel.Dock="Top" Background="{StaticResource BarBg}" Padding="8,6">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <ToggleButton x:Name="BtnPen" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                              Tag="Pen" Content="✏ Draw" IsChecked="True" ToolTip="Freehand draw"/>
                 <ToggleButton x:Name="BtnRect" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                              Tag="Rect" Content="▭ Rect" ToolTip="Rectangle"/>
+                              Tag="Rect" Content="▭ Rect" IsChecked="True" ToolTip="Rectangle"/>
+                <ToggleButton x:Name="BtnPen" Style="{StaticResource ToolToggle}" Click="Tool_Click"
+                              Tag="Pen" Content="✏ Draw" ToolTip="Freehand draw"/>
                 <ToggleButton x:Name="BtnEllipse" Style="{StaticResource ToolToggle}" Click="Tool_Click"
                               Tag="Ellipse" Content="◯ Ellipse" ToolTip="Ellipse"/>
                 <ToggleButton x:Name="BtnArrow" Style="{StaticResource ToolToggle}" Click="Tool_Click"
@@ -104,6 +104,9 @@
                 <Button Style="{StaticResource ToolBtn}" Click="Copy_Click" Content="Copy" ToolTip="Copy to clipboard (Ctrl+C)"/>
                 <Button Style="{StaticResource ToolBtn}" Click="Save_Click" Content="Save" ToolTip="Save (Ctrl+S)"/>
                 <Button Style="{StaticResource ToolBtn}" Click="SaveAs_Click" Content="Save As…"/>
+                <Button Style="{StaticResource ToolBtn}" Click="CopyClose_Click" Content="✔ Copy &amp; Close"
+                        Background="{StaticResource AccentBg}" Margin="8,0,1,0"
+                        ToolTip="Copy to clipboard, save, and close (Ctrl+Enter)"/>
             </StackPanel>
         </Border>
 

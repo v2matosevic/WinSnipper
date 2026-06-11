@@ -31,7 +31,7 @@ public partial class EditorWindow : Window
 
     private string _path;
     private BitmapSource _img = null!;
-    private Tool _tool = Tool.Pen;
+    private Tool _tool = Tool.Rect;
     private Color _color = Palette[0].Color;
     private readonly List<Border> _swatches = new();
     private ToggleButton[] _toolButtons = null!;
@@ -51,7 +51,7 @@ public partial class EditorWindow : Window
     {
         InitializeComponent();
         _path = path;
-        _toolButtons = new[] { BtnPen, BtnRect, BtnEllipse, BtnArrow, BtnCrop };
+        _toolButtons = new[] { BtnRect, BtnPen, BtnEllipse, BtnArrow, BtnCrop };
 
         SetImage(image);
         BuildSwatches();
@@ -415,6 +415,14 @@ public partial class EditorWindow : Window
 
     private void Copy_Click(object sender, RoutedEventArgs e) => Util.TrySetClipboard(Composite());
 
+    private void CopyClose_Click(object sender, RoutedEventArgs e) => CopyAndClose();
+
+    private void CopyAndClose()
+    {
+        Util.TrySetClipboard(Composite());
+        Close(); // OnClosing auto-saves if dirty
+    }
+
     private void Save_Click(object sender, RoutedEventArgs e) => Save();
 
     private void Save()
@@ -449,6 +457,10 @@ public partial class EditorWindow : Window
                 CancelCrop();
                 e.Handled = true;
                 break;
+            case Key.Enter when ctrl:
+                CopyAndClose();
+                e.Handled = true;
+                break;
             case Key.Enter when _pendingCrop != null:
                 ApplyCrop();
                 e.Handled = true;
@@ -472,14 +484,10 @@ public partial class EditorWindow : Window
         }
     }
 
+    // No confirmation dialogs — changes are saved silently to the snip file on close.
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (!_dirty) return;
-        var result = MessageBox.Show(this,
-            $"Save changes to {IOPath.GetFileName(_path)}?",
-            "WinSnipper", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-        if (result == MessageBoxResult.Yes) Save();
-        else if (result == MessageBoxResult.Cancel) e.Cancel = true;
+        if (_dirty) Save();
     }
 }

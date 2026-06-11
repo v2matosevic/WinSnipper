@@ -35,7 +35,7 @@ public partial class FloatingThumb : Window
         _path = path;
         _img = image;
         Thumb.Source = image;
-        Card.ToolTip = $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nDrag into any app to drop the file · double-click to edit";
+        Card.ToolTip = $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nClick to edit · drag into any app to drop the file";
         Loaded += (_, _) => PositionStacked();
         Closed += (_, _) => _open.Remove(this);
 
@@ -110,17 +110,10 @@ public partial class FloatingThumb : Window
     private bool _draggingOut;
     private Point _dragStart;
 
-    // Dragging the card drags the snip out as a real file (Explorer, browsers,
-    // upload fields, chats). The drag starts only past the system threshold so
-    // double-click-to-edit still works.
+    // Press-and-move drags the snip out as a real file (Explorer, browsers,
+    // upload fields, chats); press-and-release without moving opens the editor.
     private void Card_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ClickCount == 2)
-        {
-            _maybeDrag = false;
-            OpenEditor();
-            return;
-        }
         _maybeDrag = true;
         _dragStart = e.GetPosition(this);
     }
@@ -148,7 +141,12 @@ public partial class FloatingThumb : Window
         }
     }
 
-    private void Card_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => _maybeDrag = false;
+    private void Card_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_maybeDrag) return;
+        _maybeDrag = false;
+        OpenEditor(); // a plain click (no movement) opens the editor
+    }
 
     // The ⠿ grip repositions the thumbnail on screen.
     private void Grip_Down(object sender, MouseButtonEventArgs e)

@@ -1,5 +1,6 @@
 bin/
 obj/
+dist/
 *.user
 
 # Clipboard images from terminal paste

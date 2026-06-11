@@ -16,7 +16,11 @@ public sealed class TrayIcon : IDisposable
 
     public TrayIcon(Action onNewSnip, Action onExit)
     {
-        _glyph = CreateIcon();
+        // Use the exe's embedded icon; fall back to the runtime-drawn glyph
+        // (e.g. when running through the dotnet host).
+        Icon? exeIcon = null;
+        try { exeIcon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
+        _glyph = exeIcon ?? CreateIcon();
 
         var menu = new ContextMenuStrip();
 
