@@ -124,4 +124,59 @@ public static class Util
         try { return Windows.Media.Ocr.OcrEngine.TryCreateFromLanguage(new Windows.Globalization.Language(tag)); }
         catch { return null; }
     }
+
+    /// <summary>Display name of the OCR engine that would be used right now, or null.</summary>
+    public static string? OcrEngineLanguage()
+    {
+        try { return CreateOcrEngine()?.RecognizerLanguage.DisplayName; }
+        catch { return null; }
+    }
+
+    /// <summary>The user's primary language as a specific culture tag (e.g. "hr-HR").</summary>
+    public static string UserLanguageTag()
+    {
+        try
+        {
+            var culture = System.Globalization.CultureInfo.CurrentUICulture;
+            if (culture.Name.Contains('-')) return culture.Name;
+            return System.Globalization.CultureInfo.CreateSpecificCulture(culture.Name).Name;
+        }
+        catch
+        {
+            return "en-US";
+        }
+    }
+
+    /// <summary>True if an OCR pack for the user's primary language is available.</summary>
+    public static bool UserLanguageOcrInstalled()
+    {
+        string two = UserLanguageTag().Split('-')[0];
+        try
+        {
+            return Windows.Media.Ocr.OcrEngine.AvailableRecognizerLanguages
+                .Any(l => l.LanguageTag.StartsWith(two, StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Launches an elevated one-liner (UAC prompt) that installs the Windows
+    /// OCR capability for the given language. The packs are Windows components
+    /// and cannot be bundled with the app.
+    /// </summary>
+    public static void LaunchOcrPackInstall(string tag)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "powershell",
+            Arguments = $"-NoProfile -Command \"Add-WindowsCapability -Online -Name 'Language.OCR~~~{tag}~0.0.1.0'\"",
+            Verb = "runas",
+            UseShellExecute = true,
+        };
+        try { System.Diagnostics.Process.Start(psi); }
+        catch { /* user declined UAC */ }
+    }
 }

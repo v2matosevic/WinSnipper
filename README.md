@@ -59,11 +59,19 @@ Stored in `%APPDATA%\WinSnipper\settings.json`.
 ## OCR languages
 
 "Copy Text" uses Windows' built-in OCR. It picks the best engine it can find:
-Croatian → your profile languages → English → anything installed. For the best
-results with non-English text, install the OCR pack for your language:
-*Settings → Time & Language → Language & Region → your language → Language
-options → Basic typing / OCR*. Small snips are upscaled automatically before
-recognition, which significantly improves accuracy on terminal-size text.
+Croatian → your profile languages → English → anything installed.
+
+OCR language packs are Windows components, so they can't ship inside the app —
+but WinSnipper's **Settings** shows your OCR status and offers a **one-click
+install** of the pack for your language (a UAC prompt + ~1 minute download).
+Equivalent manual command from an admin PowerShell:
+
+```powershell
+Add-WindowsCapability -Online -Name "Language.OCR~~~hr-HR~0.0.1.0"  # your tag here
+```
+
+Small snips are upscaled automatically before recognition, which significantly
+improves accuracy on terminal-size text.
 
 ## Build
 
