@@ -60,13 +60,34 @@ public partial class EditorWindow : Window
 
         ThicknessSlider.ValueChanged += (_, e) => ThicknessLabel.Text = ((int)e.NewValue).ToString();
 
-        var wa = SystemParameters.WorkArea;
-        Width = Math.Clamp(image.PixelWidth + 120, 640, wa.Width * 0.92);
-        Height = Math.Clamp(image.PixelHeight + 180, 440, wa.Height * 0.92);
-
-        // Start at true 1:1 pixels regardless of display scaling.
-        Loaded += (_, _) => SetZoom(1.0 / VisualTreeHelper.GetDpi(this).DpiScaleX);
+        // Window opens maximized; once layout settles, fit the snip to the
+        // viewport (never above true 1:1 pixels).
+        Loaded += (_, _) => Dispatcher.BeginInvoke(FitToViewport,
+            System.Windows.Threading.DispatcherPriority.Loaded);
     }
+
+    private void FitToViewport()
+    {
+        double native = 1.0 / VisualTreeHelper.GetDpi(this).DpiScaleX;
+        double vw = Scroller.ViewportWidth - 56;
+        double vh = Scroller.ViewportHeight - 56;
+        double zoom = native;
+        if (vw > 0 && vh > 0 && Surface.Width > 0 && Surface.Height > 0)
+            zoom = Math.Min(native, Math.Min(vw / Surface.Width, vh / Surface.Height));
+        SetZoom(zoom);
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        // Dark title bar (DWMWA_USE_IMMERSIVE_DARK_MODE)
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        int dark = 1;
+        _ = DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int));
+    }
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
     // ---------- image / layout ----------
 
