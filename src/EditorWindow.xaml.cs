@@ -537,6 +537,9 @@ public partial class EditorWindow : Window
 
     // ---------- OCR ----------
 
+    // Copy Text = "I want the text, I'm done here": copy, save, close — same
+    // philosophy as Copy & Close. On failure the editor stays open with the
+    // reason in the status bar.
     private async void Ocr_Click(object sender, RoutedEventArgs e)
     {
         CommitText();
@@ -550,12 +553,11 @@ public partial class EditorWindow : Window
                 StatusSize.Text = text is null
                     ? "OCR unavailable — no OCR language installed"
                     : "No text found in the image";
+                return;
             }
-            else
-            {
-                Util.TrySetClipboardText(text);
-                StatusSize.Text = $"Copied {text.Length} characters of text";
-            }
+            Util.TrySetClipboardText(text);
+            _clipboardHandled = true; // don't clobber the text with the image on close
+            Close();
         }
         catch (Exception ex)
         {
@@ -765,12 +767,17 @@ public partial class EditorWindow : Window
         }
     }
 
+    private bool _clipboardHandled;
+
     // No confirmation dialogs — closing silently saves the snip file AND refreshes
-    // the clipboard, so what you paste is always the edited image.
+    // the clipboard, so what you paste is always the edited image. Exception:
+    // when an action (Copy Text) already put its own payload on the clipboard.
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (_dirty)
-            Util.TrySetClipboard(Save());
+        if (!_dirty) return;
+        var img = Save();
+        if (!_clipboardHandled)
+            Util.TrySetClipboard(img);
     }
 }
