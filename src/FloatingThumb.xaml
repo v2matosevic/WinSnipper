@@ -62,8 +62,8 @@
             <Grid>
                 <Image x:Name="Thumb"
                        Margin="3"
-                       MinWidth="60" MinHeight="40"
-                       MaxWidth="300" MaxHeight="190"
+                       MinWidth="50" MinHeight="34"
+                       MaxWidth="190" MaxHeight="120"
                        Stretch="Uniform"
                        RenderOptions.BitmapScalingMode="HighQuality"/>
                 <Border x:Name="ToolsBar"
