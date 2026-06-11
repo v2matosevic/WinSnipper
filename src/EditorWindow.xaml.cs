@@ -425,13 +425,14 @@ public partial class EditorWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e) => Save();
 
-    private void Save()
+    private BitmapSource Save()
     {
         var img = Composite();
         Util.SavePng(img, _path);
         _dirty = false;
         UpdateTitle();
         ImageSaved?.Invoke(img);
+        return img;
     }
 
     private void SaveAs_Click(object sender, RoutedEventArgs e)
@@ -484,10 +485,12 @@ public partial class EditorWindow : Window
         }
     }
 
-    // No confirmation dialogs — changes are saved silently to the snip file on close.
+    // No confirmation dialogs — closing silently saves the snip file AND refreshes
+    // the clipboard, so what you paste is always the edited image.
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (_dirty) Save();
+        if (_dirty)
+            Util.TrySetClipboard(Save());
     }
 }

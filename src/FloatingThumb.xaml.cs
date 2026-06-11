@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -23,7 +24,6 @@ public partial class FloatingThumb : Window
 
     private readonly string _path;
     private BitmapSource _img;
-    private bool _userMoved;
     private EditorWindow? _editor;
     private readonly DispatcherTimer _dismissTimer;
     private bool _pinned;
@@ -36,7 +36,11 @@ public partial class FloatingThumb : Window
         _img = image;
         Thumb.Source = image;
         Card.ToolTip = $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nClick to edit · drag into any app to drop the file";
-        Loaded += (_, _) => PositionStacked();
+        Loaded += (_, _) =>
+        {
+            PositionStacked();
+            AnimateIn();
+        };
         Closed += (_, _) => _open.Remove(this);
 
         _dismissTimer = new DispatcherTimer { Interval = DismissAfter };
@@ -95,11 +99,11 @@ public partial class FloatingThumb : Window
         var wa = SystemParameters.WorkArea;
         Left = wa.Right - ActualWidth + Shadow - Gap;
 
-        // Stack above the lowest auto-placed thumb still on screen.
+        // Stack above the lowest thumb still on screen.
         double bottomEdge = wa.Bottom + Shadow - Gap;
         foreach (var t in _open)
         {
-            if (t == this || t._userMoved) continue;
+            if (t == this) continue;
             bottomEdge = Math.Min(bottomEdge, t.Top + Shadow - 8);
         }
         Top = bottomEdge - ActualHeight;
@@ -148,13 +152,21 @@ public partial class FloatingThumb : Window
         OpenEditor(); // a plain click (no movement) opens the editor
     }
 
-    // The ⠿ grip repositions the thumbnail on screen.
-    private void Grip_Down(object sender, MouseButtonEventArgs e)
+    private void AnimateIn()
     {
-        e.Handled = true;
-        _userMoved = true;
-        try { DragMove(); } catch { /* released outside a drag */ }
+        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220));
+        var slide = new DoubleAnimation(14, 0, TimeSpan.FromMilliseconds(260))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        };
+        BeginAnimation(OpacityProperty, fade);
+        EnterTf.BeginAnimation(TranslateTransform.YProperty, slide);
     }
+
+    // Round the image corners to match the card.
+    private void Thumb_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        Thumb.Clip = new System.Windows.Media.RectangleGeometry(
+            new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 7, 7);
 
     private void OpenEditor()
     {
@@ -205,7 +217,7 @@ public partial class FloatingThumb : Window
 
     private void Win_MouseEnter(object sender, MouseEventArgs e)
     {
-        ToolsBar.Visibility = Visibility.Visible;
+        CloseBtn.Visibility = Visibility.Visible;
         _dismissTimer.Stop();
         if (_fading)
         {
@@ -218,7 +230,7 @@ public partial class FloatingThumb : Window
 
     private void Win_MouseLeave(object sender, MouseEventArgs e)
     {
-        ToolsBar.Visibility = Visibility.Collapsed;
+        CloseBtn.Visibility = Visibility.Collapsed;
         RestartCountdown();
     }
 }

@@ -13,20 +13,22 @@
         MouseEnter="Win_MouseEnter"
         MouseLeave="Win_MouseLeave">
     <Window.Resources>
-        <Style x:Key="ThumbBtn" TargetType="Button">
+        <Style x:Key="CloseBtnStyle" TargetType="Button">
             <Setter Property="Foreground" Value="#FFE6E8EC"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Width" Value="28"/>
-            <Setter Property="Height" Value="26"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Width" Value="22"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="B" Background="Transparent" CornerRadius="5">
+                        <Border x:Name="B" Background="#CC202229" CornerRadius="11"
+                                BorderBrush="#33FFFFFF" BorderThickness="1">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="B" Property="Background" Value="#FF3A3E48"/>
+                                <Setter TargetName="B" Property="Background" Value="#E6D64545"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -34,17 +36,20 @@
             </Setter>
         </Style>
     </Window.Resources>
-    <Grid Margin="12">
+    <Grid x:Name="Root" Margin="12" RenderTransformOrigin="0.5,0.5">
+        <Grid.RenderTransform>
+            <TranslateTransform x:Name="EnterTf"/>
+        </Grid.RenderTransform>
         <Border x:Name="Card"
-                CornerRadius="9"
+                CornerRadius="10"
                 Background="#FF1C1D22"
-                BorderBrush="#66FFFFFF"
+                BorderBrush="#4DFFFFFF"
                 BorderThickness="1"
                 MouseLeftButtonDown="Card_MouseLeftButtonDown"
                 MouseMove="Card_MouseMove"
                 MouseLeftButtonUp="Card_MouseLeftButtonUp">
             <Border.Effect>
-                <DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.55"/>
+                <DropShadowEffect BlurRadius="16" ShadowDepth="2" Opacity="0.45" Color="#FF000000"/>
             </Border.Effect>
             <Border.ContextMenu>
                 <ContextMenu>
@@ -65,24 +70,13 @@
                        MinWidth="50" MinHeight="34"
                        MaxWidth="190" MaxHeight="120"
                        Stretch="Uniform"
+                       SizeChanged="Thumb_SizeChanged"
                        RenderOptions.BitmapScalingMode="HighQuality"/>
-                <Border x:Name="ToolsBar"
+                <Button x:Name="CloseBtn" Content="✕" ToolTip="Dismiss"
+                        Style="{StaticResource CloseBtnStyle}"
                         VerticalAlignment="Top" HorizontalAlignment="Right"
-                        Margin="7" CornerRadius="6"
-                        Background="#E61B1E24"
-                        Visibility="Collapsed">
-                    <StackPanel Orientation="Horizontal" Margin="2">
-                        <Button Content="⠿" ToolTip="Move the thumbnail on screen"
-                                Style="{StaticResource ThumbBtn}" Cursor="SizeAll"
-                                PreviewMouseLeftButtonDown="Grip_Down"/>
-                        <Button Content="✏" ToolTip="Edit (double-click also opens the editor)"
-                                Style="{StaticResource ThumbBtn}" Click="Edit_Click"/>
-                        <Button Content="⧉" ToolTip="Copy image to clipboard"
-                                Style="{StaticResource ThumbBtn}" Click="Copy_Click"/>
-                        <Button Content="✕" ToolTip="Dismiss"
-                                Style="{StaticResource ThumbBtn}" Click="CloseItem_Click"/>
-                    </StackPanel>
-                </Border>
+                        Margin="6" Visibility="Collapsed"
+                        Click="CloseItem_Click"/>
             </Grid>
         </Border>
     </Grid>
