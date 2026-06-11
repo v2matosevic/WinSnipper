@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1 — 2026-06-12
+
+- Removed the redundant Copy button from the editor toolbar — Ctrl+C still
+  copies, and Copy & Close remains the primary action
+
 ## 0.5.0 — 2026-06-12
 
 - **Hook watchdog** — the keyboard hook re-arms every 5 minutes and on
