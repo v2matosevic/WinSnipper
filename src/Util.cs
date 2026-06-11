@@ -76,21 +76,19 @@ public static class Util
     /// </summary>
     public static async Task<string?> OcrAsync(BitmapSource image)
     {
-        var engine = Windows.Media.Ocr.OcrEngine.TryCreateFromUserProfileLanguages()
-            ?? Windows.Media.Ocr.OcrEngine.TryCreateFromLanguage(new Windows.Globalization.Language("en-US"))
-            ?? Windows.Media.Ocr.OcrEngine.AvailableRecognizerLanguages
-                .Select(Windows.Media.Ocr.OcrEngine.TryCreateFromLanguage)
-                .FirstOrDefault(x => x is not null);
+        var engine = CreateOcrEngine();
         if (engine is null) return null;
 
-        // OCR rejects images beyond its max dimension — downscale to fit.
+        // Windows OCR is markedly more accurate when glyphs are large; capture
+        // text (terminals, UI) is usually small, so upscale up to 2x as long as
+        // we stay inside the engine's max dimension. Oversized images get
+        // downscaled to fit instead.
         double maxDim = Windows.Media.Ocr.OcrEngine.MaxImageDimension;
         BitmapSource src = image;
-        if (src.PixelWidth > maxDim || src.PixelHeight > maxDim)
-        {
-            double scale = Math.Min(maxDim / src.PixelWidth, maxDim / src.PixelHeight);
+        double largest = Math.Max(src.PixelWidth, src.PixelHeight);
+        double scale = Math.Min(2.0, maxDim / largest);
+        if (Math.Abs(scale - 1.0) > 0.05)
             src = new TransformedBitmap(src, new System.Windows.Media.ScaleTransform(scale, scale));
-        }
 
         using var ms = new MemoryStream();
         var encoder = new PngBitmapEncoder();
@@ -106,5 +104,24 @@ public static class Util
 
         var result = await engine.RecognizeAsync(soft);
         return string.Join(Environment.NewLine, result.Lines.Select(l => l.Text));
+    }
+
+    /// <summary>
+    /// Engine preference: Croatian (if its OCR pack is installed) so diacritics
+    /// (č ć š ž đ) survive, then the user's profile languages, then en-US,
+    /// then anything available.
+    /// </summary>
+    private static Windows.Media.Ocr.OcrEngine? CreateOcrEngine() =>
+        TryLang("hr")
+        ?? Windows.Media.Ocr.OcrEngine.TryCreateFromUserProfileLanguages()
+        ?? TryLang("en-US")
+        ?? Windows.Media.Ocr.OcrEngine.AvailableRecognizerLanguages
+            .Select(Windows.Media.Ocr.OcrEngine.TryCreateFromLanguage)
+            .FirstOrDefault(x => x is not null);
+
+    private static Windows.Media.Ocr.OcrEngine? TryLang(string tag)
+    {
+        try { return Windows.Media.Ocr.OcrEngine.TryCreateFromLanguage(new Windows.Globalization.Language(tag)); }
+        catch { return null; }
     }
 }

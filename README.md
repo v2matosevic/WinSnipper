@@ -1,5 +1,9 @@
 # WinSnipper
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
+![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4)
+
 Ultra-lightweight screenshot tool for Windows, built for fast feedback loops —
 especially pasting annotated screenshots into AI coding chats. Replaces the
 built-in **Win+Shift+S** snip with a tighter flow:
@@ -8,6 +12,12 @@ built-in **Win+Shift+S** snip with a tighter flow:
 
 Single-file exe. .NET 8 + WPF, no external packages (the only sizable piece is
 the Windows SDK projection that powers built-in OCR).
+
+## Install
+
+Grab `WinSnipper.exe` from [Releases](../../releases) and run it — it lives in
+the tray. Needs the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
+Tick *Start with Windows* in Settings if it earns a permanent spot.
 
 ## Flow
 
@@ -46,6 +56,15 @@ Tray icon → **Settings…**
 
 Stored in `%APPDATA%\WinSnipper\settings.json`.
 
+## OCR languages
+
+"Copy Text" uses Windows' built-in OCR. It picks the best engine it can find:
+Croatian → your profile languages → English → anything installed. For the best
+results with non-English text, install the OCR pack for your language:
+*Settings → Time & Language → Language & Region → your language → Language
+options → Basic typing / OCR*. Small snips are upscaled automatically before
+recognition, which significantly improves accuracy on terminal-size text.
+
 ## Build
 
 ```powershell
@@ -68,6 +87,18 @@ Ideas queued up — PRs welcome:
 - Highlighter pen, line tool
 - Re-editable annotations (select / move / delete individual shapes)
 - Optional Desktop Duplication capture path for exclusive-fullscreen games
+
+## Docs
+
+- [Architecture](docs/ARCHITECTURE.md) — component map and the decisions behind it
+- [Contributing](CONTRIBUTING.md) — build, smoke test, ground rules
+- [Changelog](CHANGELOG.md)
+
+## Credits
+
+Built by [Marko Matošević](https://github.com/v2matosevic) (Version2) together
+with Claude (Anthropic) — designed, written, and shipped in a pair-programming
+loop: human direction and testing, AI implementation.
 
 ## License
 

@@ -13,7 +13,12 @@
     <AssemblyName>WinSnipper</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
+    <Authors>Marko Matošević</Authors>
+    <Company>Version2</Company>
+    <Description>Ultra-lightweight Win+Shift+S replacement: snip, floating thumbnail, annotate, OCR, paste.</Description>
+    <RepositoryUrl>https://github.com/v2matosevic/WinSnipper</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <!-- WFAC010: WinForms analyzer flags the manifest DPI block, but WPF needs PerMonitorV2 declared there. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
