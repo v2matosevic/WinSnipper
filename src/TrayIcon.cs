@@ -59,6 +59,23 @@ public sealed class TrayIcon : IDisposable
     public void ShowError(string message) =>
         _icon.ShowBalloonTip(5000, "WinSnipper", message, ToolTipIcon.Warning);
 
+    private string? _updateUrl;
+
+    public void ShowUpdateAvailable(string tag, string url)
+    {
+        _updateUrl = url;
+        _icon.BalloonTipClicked -= OnUpdateBalloonClicked;
+        _icon.BalloonTipClicked += OnUpdateBalloonClicked;
+        _icon.ShowBalloonTip(8000, "WinSnipper update",
+            $"{tag} is available — click to open the release page.", ToolTipIcon.Info);
+    }
+
+    private void OnUpdateBalloonClicked(object? sender, EventArgs e)
+    {
+        if (_updateUrl is { } url)
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
+
     private static void OpenSnipsFolder()
     {
         System.IO.Directory.CreateDirectory(Util.SnipsDir);

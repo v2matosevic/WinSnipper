@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 — 2026-06-12
+
+- **Hook watchdog** — the keyboard hook re-arms every 5 minutes and on
+  wake/unlock, fixing the classic "hotkey silently stops working" failure
+  (Windows drops LL hooks after a slow callback)
+- **Crash resilience** — unhandled exceptions are logged to
+  `%APPDATA%\WinSnipper\crash.log`; UI-thread errors no longer kill the app
+- **Update check** — once a day the app compares itself against the latest
+  GitHub release and shows a tray balloon linking to it
+
 ## 0.4.0 — 2026-06-12
 
 - **Two build flavors**: lite `WinSnipper.exe` (~0.25 MB, the full screenshot

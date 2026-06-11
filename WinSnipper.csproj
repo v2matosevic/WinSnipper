@@ -28,7 +28,7 @@
     <AssemblyName>WinSnipper</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
-    <Version>0.4.0</Version>
+    <Version>0.5.0</Version>
     <Authors>Marko Matošević</Authors>
     <Company>Version2</Company>
     <Description>Ultra-lightweight Win+Shift+S replacement: snip, floating thumbnail, annotate, OCR, paste.</Description>
