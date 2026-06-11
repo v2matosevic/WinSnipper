@@ -11,7 +11,7 @@
     <AssemblyName>WinSnipper</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <!-- WFAC010: WinForms analyzer flags the manifest DPI block, but WPF needs PerMonitorV2 declared there. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>

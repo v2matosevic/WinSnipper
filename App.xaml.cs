@@ -32,6 +32,7 @@ public partial class App : Application
 
         _tray = new TrayIcon(
             onNewSnip: () => SnipFromMenu(),
+            onSettings: ShowSettings,
             onExit: Shutdown);
 
         try
@@ -50,6 +51,20 @@ public partial class App : Application
     {
         await Task.Delay(300);
         _snips.StartSnip();
+    }
+
+    private SettingsWindow? _settings;
+
+    private void ShowSettings()
+    {
+        if (_settings is { IsLoaded: true })
+        {
+            _settings.Activate();
+            return;
+        }
+        _settings = new SettingsWindow();
+        _settings.Show();
+        _settings.Activate();
     }
 
     protected override void OnExit(ExitEventArgs e)

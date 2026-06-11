@@ -2,19 +2,15 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
-using Microsoft.Win32;
 
 namespace WinSnipper;
 
 public sealed class TrayIcon : IDisposable
 {
-    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string RunValueName = "WinSnipper";
-
     private readonly NotifyIcon _icon;
     private readonly Icon _glyph;
 
-    public TrayIcon(Action onNewSnip, Action onExit)
+    public TrayIcon(Action onNewSnip, Action onSettings, Action onExit)
     {
         // Use the exe's embedded icon; fall back to the runtime-drawn glyph
         // (e.g. when running through the dotnet host).
@@ -24,7 +20,7 @@ public sealed class TrayIcon : IDisposable
 
         var menu = new ContextMenuStrip();
 
-        var snipItem = new ToolStripMenuItem("New snip") { ShortcutKeyDisplayString = "Win+Shift+S" };
+        var snipItem = new ToolStripMenuItem("New snip") { ShortcutKeyDisplayString = Util.CurrentHotkeyDisplay };
         snipItem.Click += (_, _) => onNewSnip();
         menu.Items.Add(snipItem);
 
@@ -34,9 +30,9 @@ public sealed class TrayIcon : IDisposable
 
         menu.Items.Add(new ToolStripSeparator());
 
-        var startupItem = new ToolStripMenuItem("Start with Windows") { CheckOnClick = true, Checked = IsStartupEnabled() };
-        startupItem.CheckedChanged += (_, _) => SetStartup(startupItem.Checked);
-        menu.Items.Add(startupItem);
+        var settingsItem = new ToolStripMenuItem("Settings…");
+        settingsItem.Click += (_, _) => onSettings();
+        menu.Items.Add(settingsItem);
 
         menu.Items.Add(new ToolStripSeparator());
 
@@ -47,11 +43,17 @@ public sealed class TrayIcon : IDisposable
         _icon = new NotifyIcon
         {
             Icon = _glyph,
-            Text = "WinSnipper — Win+Shift+S to snip",
+            Text = $"WinSnipper — {Util.CurrentHotkeyDisplay} to snip",
             Visible = true,
             ContextMenuStrip = menu,
         };
         _icon.DoubleClick += (_, _) => OpenSnipsFolder();
+
+        Settings.Changed += () =>
+        {
+            snipItem.ShortcutKeyDisplayString = Util.CurrentHotkeyDisplay;
+            _icon.Text = $"WinSnipper — {Util.CurrentHotkeyDisplay} to snip";
+        };
     }
 
     public void ShowError(string message) =>
@@ -61,21 +63,6 @@ public sealed class TrayIcon : IDisposable
     {
         System.IO.Directory.CreateDirectory(Util.SnipsDir);
         Process.Start("explorer.exe", Util.SnipsDir);
-    }
-
-    private static bool IsStartupEnabled()
-    {
-        using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath);
-        return key?.GetValue(RunValueName) != null;
-    }
-
-    private static void SetStartup(bool enabled)
-    {
-        using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath);
-        if (enabled)
-            key.SetValue(RunValueName, $"\"{Environment.ProcessPath}\"");
-        else
-            key.DeleteValue(RunValueName, throwOnMissingValue: false);
     }
 
     /// <summary>Viewfinder glyph drawn at runtime so we ship no binary assets.</summary>

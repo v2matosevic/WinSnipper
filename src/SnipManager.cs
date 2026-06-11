@@ -40,7 +40,8 @@ public sealed class SnipManager
 
                 string path = NextSnipPath();
                 Util.SavePng(cropped, path);
-                Util.TrySetClipboard(cropped);
+                if (Settings.Current.CopyToClipboard)
+                    Util.TrySetClipboard(cropped);
 
                 new FloatingThumb(path, cropped).ShowStacked();
             }
