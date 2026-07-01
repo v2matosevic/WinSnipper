@@ -48,6 +48,7 @@ public partial class App : Application
             onSettings: ShowSettings,
             onExit: Shutdown);
         _recordings.OnError = msg => _tray?.ShowError(msg);
+        _recordings.OnInfo = msg => _tray?.ShowInfo(msg);
 
         try
         {

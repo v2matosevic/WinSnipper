@@ -9,7 +9,32 @@
         Left="0" Top="0" Width="200" Height="200"
         Background="Black"
         Cursor="Cross">
-    <Grid>
+    <Window.Resources>
+        <Style x:Key="ModeBtn" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="#FFCDD2D8"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Cursor" Value="Arrow"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="B" Background="Transparent" CornerRadius="6" Padding="12,6" Margin="1,0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="B" Property="Background" Value="#FF33363E"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="B" Property="Background" Value="#FF3478F6"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid x:Name="RootGrid">
         <Image x:Name="ScreenImage" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
         <Path x:Name="DimPath" Fill="#59000000" IsHitTestVisible="False"/>
         <Canvas IsHitTestVisible="False">
@@ -18,11 +43,21 @@
                 <TextBlock x:Name="SizeText" Foreground="White" FontSize="12" FontFamily="Consolas"/>
             </Border>
         </Canvas>
-        <Border x:Name="HintBadge"
-                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,28,0,0"
-                Background="#CC1B1E23" CornerRadius="6" Padding="16,9" IsHitTestVisible="False">
-            <TextBlock Foreground="#EEEEEE" FontSize="13"
-                       Text="Drag to capture a region   ·   Esc to cancel"/>
+        <Border x:Name="ModeBar"
+                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,24,0,0"
+                Background="#F21B1E23" CornerRadius="9" Padding="5"
+                BorderBrush="#33FFFFFF" BorderThickness="1">
+            <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="ModeRegionBtn" Style="{StaticResource ModeBtn}" Content="Region"
+                             IsChecked="True" Checked="Mode_Checked"/>
+                <RadioButton x:Name="ModeWindowBtn" Style="{StaticResource ModeBtn}" Content="Window"
+                             Checked="Mode_Checked"/>
+                <RadioButton x:Name="ModeScreenBtn" Style="{StaticResource ModeBtn}" Content="Screen"
+                             Checked="Mode_Checked"/>
+                <TextBlock x:Name="HintText" Foreground="#FF9AA0A8" FontSize="12"
+                           VerticalAlignment="Center" Margin="12,0,8,0"
+                           Text="Drag to select   ·   Esc to cancel"/>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

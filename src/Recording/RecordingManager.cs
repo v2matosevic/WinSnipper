@@ -23,6 +23,7 @@ public sealed class RecordingManager
     public bool IsRecording => _recorder is not null;
 
     public Action<string>? OnError;
+    public Action<string>? OnInfo;
 
     public void Toggle()
     {
@@ -40,22 +41,10 @@ public sealed class RecordingManager
         _selecting = true;
         try
         {
-            FloatingThumb.SetAllVisible(false);
-            System.Windows.Media.Imaging.BitmapSource shot;
-            Int32Rect bounds;
-            try
-            {
-                (shot, bounds) = ScreenCapture.CaptureVirtualScreen();
-            }
-            catch
-            {
-                FloatingThumb.SetAllVisible(true);
-                return;
-            }
-
-            var overlay = new SnipOverlay(shot, bounds);
+            // Live overlay — no frozen screenshot, the desktop keeps moving.
+            var bounds = ScreenCapture.VirtualScreenBounds();
+            var overlay = new SnipOverlay(bounds);
             bool? ok = overlay.ShowDialog();
-            FloatingThumb.SetAllVisible(true);
 
             if (ok != true || overlay.SelectionPx is not { Width: > 0, Height: > 0 } sel)
                 return;
@@ -89,6 +78,8 @@ public sealed class RecordingManager
             _hud.StopRequested += () => _ = StopAsync();
             _hud.PauseToggled += paused => recorder.SetPaused(paused);
             _hud.Show();
+            if (_hud.PillHidden)
+                OnInfo?.Invoke($"Recording… press {Util.RecordHotkeyDisplay} to stop.");
 
             var guard = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
             guard.Tick += (_, _) =>

@@ -13,16 +13,24 @@ public static class ScreenCapture
     private const int SM_CXVIRTUALSCREEN = 78;
     private const int SM_CYVIRTUALSCREEN = 79;
 
+    /// <summary>Bounds of the virtual screen (all monitors) in physical pixels.</summary>
+    public static Int32Rect VirtualScreenBounds() => new(
+        GetSystemMetrics(SM_XVIRTUALSCREEN),
+        GetSystemMetrics(SM_YVIRTUALSCREEN),
+        GetSystemMetrics(SM_CXVIRTUALSCREEN),
+        GetSystemMetrics(SM_CYVIRTUALSCREEN));
+
     /// <summary>
     /// Captures the entire virtual screen (all monitors) in physical pixels.
     /// Returns the frozen image plus the virtual-screen bounds in screen pixel coordinates.
     /// </summary>
     public static (BitmapSource image, Int32Rect boundsPx) CaptureVirtualScreen()
     {
-        int left = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        int top = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        int width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-        int height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        var vs = VirtualScreenBounds();
+        int left = vs.X;
+        int top = vs.Y;
+        int width = vs.Width;
+        int height = vs.Height;
 
         using var bmp = new Bitmap(width, height);
         using (var g = Graphics.FromImage(bmp))

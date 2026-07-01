@@ -64,6 +64,9 @@ public sealed class TrayIcon : IDisposable
     public void ShowError(string message) =>
         _icon.ShowBalloonTip(5000, "WinSnipper", message, ToolTipIcon.Warning);
 
+    public void ShowInfo(string message) =>
+        _icon.ShowBalloonTip(4000, "WinSnipper", message, ToolTipIcon.Info);
+
     private string? _updateUrl;
 
     public void ShowUpdateAvailable(string tag, string url)
