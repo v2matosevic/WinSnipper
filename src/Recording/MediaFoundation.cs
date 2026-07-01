@@ -39,6 +39,9 @@ internal static class Mf
     public static readonly Guid MF_MT_AVG_BITRATE = new("20332624-FB0D-4D9E-BD0D-CBF6786C102E");
     public static readonly Guid MF_MT_DEFAULT_STRIDE = new("644B4E48-1E02-4516-B0EB-C01CA9D49AC6");
     public static readonly Guid MF_MT_ALL_SAMPLES_INDEPENDENT = new("C9173739-5E56-461C-B713-46FB995CB95F");
+    public static readonly Guid MF_MT_MAX_KEYFRAME_SPACING = new("C16EB52B-73A1-476F-8D62-839D6A020652");
+    public static readonly Guid CODECAPI_AVEncMPVGOPSize = new("95F31B26-95A4-41AA-9303-246A7FC6EEF1");
+    public static readonly Guid CODECAPI_AVEncVideoForceKeyFrame = new("398C1B98-8353-475A-9EF2-8F265D260345");
 
     public static readonly Guid MFMediaType_Video = new("73646976-0000-0010-8000-00AA00389B71");
     public static readonly Guid MFVideoFormat_H264 = new("34363248-0000-0010-8000-00AA00389B71");
@@ -108,6 +111,18 @@ internal static class Mf
         public long value;
 
         public static PropVariantI8 From(long v) => new() { vt = 20 /* VT_I8 */, value = v };
+    }
+
+    /// <summary>Full 24-byte VARIANT, for ICodecAPI::SetValue.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Variant
+    {
+        public ushort vt;
+        public ushort r1, r2, r3;
+        public long data1;
+        public long data2;
+
+        public static Variant FromUInt32(uint v) => new() { vt = 19 /* VT_UI4 */, data1 = v };
     }
 }
 
@@ -270,6 +285,27 @@ internal interface IMFSinkWriter
     [PreserveSig] int Finalize_(); // trailing underscore avoids Object.Finalize clash; vtable slot is what matters
     [PreserveSig] int GetServiceForStream(int streamIndex, ref Guid service, ref Guid riid, out IntPtr ppv);
     [PreserveSig] int GetStatistics(int streamIndex, IntPtr stats);
+}
+
+/// <summary>Codec configuration on the encoder MFT (only SetValue is used).</summary>
+[ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("901DB4C7-31CE-41A2-85DC-8FA0BF41B8DA")]
+internal interface ICodecAPI
+{
+    [PreserveSig] int IsSupported(ref Guid api);
+    void Reserved4(); // IsModifiable
+    void Reserved5(); // GetParameterRange
+    void Reserved6(); // GetParameterValues
+    void Reserved7(); // GetDefaultValue
+    void Reserved8(); // GetValue
+    [PreserveSig] int SetValue(ref Guid api, ref Mf.Variant value);
+    void Reserved10(); // RegisterForEvent
+    void Reserved11(); // UnregisterForEvent
+    void Reserved12(); // SetAllDefaults
+    void Reserved13(); // SetValueWithNotify
+    void Reserved14(); // SetAllDefaultsWithNotify
+    void Reserved15(); // GetAllSettings
+    void Reserved16(); // SetAllSettings
+    void Reserved17(); // SetAllSettingsWithNotify
 }
 
 [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("70AE66F2-C809-4E4F-8915-BDCB406B7993")]

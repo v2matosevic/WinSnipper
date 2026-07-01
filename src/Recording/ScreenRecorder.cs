@@ -106,15 +106,40 @@ public sealed class ScreenRecorder
         long firstTs = -1;
         long slot = 0;
 
+        DesktopDuplicator? dupe = null;
+        Bitmap? clean = null;
+        ICodecAPI? codec = null;
+
         timeBeginPeriod(1); // default 15.6 ms sleep granularity would cap us near 20 fps
         try
         {
             Diag($"start region={_region.X},{_region.Y} {w}x{h} fps={_fps}");
             var initClock = Stopwatch.StartNew();
-            writer = CreateWriter(_path, w, h, _fps, out int stream);
+            writer = CreateWriter(_path, w, h, _fps, 1, null, out int stream);
+            // Belt and braces on top of the GOP request: explicitly mark one
+            // frame per second as a keyframe (some hardware encoders accept
+            // AVEncMPVGOPSize and then ignore it).
+            codec = GetCodecApi(writer, stream);
             Diag($"writer ready in {initClock.ElapsedMilliseconds} ms");
             using var bmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
             using var g = Graphics.FromImage(bmp);
+
+            // Desktop Duplication sees hardware-overlay video that GDI renders
+            // black; GDI remains the fallback (spanning regions, RDP, …).
+            try
+            {
+                dupe = new DesktopDuplicator(_region);
+                clean = new Bitmap(w, h, PixelFormat.Format32bppRgb);
+                using (var cg = Graphics.FromImage(clean))
+                    cg.CopyFromScreen(_region.X, _region.Y, 0, 0,
+                        new System.Drawing.Size(w, h), CopyPixelOperation.SourceCopy);
+                Diag("capture: desktop duplication");
+            }
+            catch (Exception ex)
+            {
+                dupe = null;
+                Diag($"capture: GDI (duplication unavailable: {ex.Message})");
+            }
 
             _clock.Start();
             while (!_stop)
@@ -129,12 +154,33 @@ public sealed class ScreenRecorder
                 if (firstTs < 0) firstTs = ts;
                 ts -= firstTs;
 
-                CaptureFrame(g, bmp);
+                if (dupe is not null)
+                {
+                    try
+                    {
+                        dupe.TryAccumulateInto(clean!); // false = unchanged, clean already holds the frame
+                        CopyBitmap(clean!, bmp);
+                        if (_cursor) DrawCursor(g);
+                    }
+                    catch (Exception ex)
+                    {
+                        Diag($"duplication lost, switching to GDI: {ex.Message}");
+                        dupe.Dispose();
+                        dupe = null;
+                        CaptureFrame(g, bmp);
+                    }
+                }
+                else
+                {
+                    CaptureFrame(g, bmp);
+                }
 
                 // Fill every slot that has come due, at least one.
                 long due = Math.Max(slot, ts / frameDur);
                 for (; slot <= due; slot++)
                 {
+                    if (codec is not null && slot % _fps == 0)
+                        ForceKeyFrame(codec);
                     var sample = CreateSample(bmp, w, h);
                     Mf.Check(sample.SetSampleTime(slot * frameDur));
                     Mf.Check(sample.SetSampleDuration(frameDur));
@@ -163,6 +209,9 @@ public sealed class ScreenRecorder
         finally
         {
             timeEndPeriod(1);
+            dupe?.Dispose();
+            clean?.Dispose();
+            Mf.Release(codec);
             Mf.Release(writer);
             if (frames == 0 || Error is not null)
             {
@@ -176,7 +225,7 @@ public sealed class ScreenRecorder
     private long ActiveTicks100() => _clock.Elapsed.Ticks - Interlocked.Read(ref _pausedTicks100);
 
     /// <summary>Appends to %APPDATA%\WinSnipper\recorder.log (trimmed at ~256 KB).</summary>
-    private static void Diag(string message)
+    internal static void Diag(string message)
     {
         try
         {
@@ -195,6 +244,30 @@ public sealed class ScreenRecorder
     {
         g.CopyFromScreen(_region.X, _region.Y, 0, 0, new System.Drawing.Size(bmp.Width, bmp.Height), CopyPixelOperation.SourceCopy);
         if (_cursor) DrawCursor(g);
+    }
+
+    private static void CopyBitmap(Bitmap src, Bitmap dst)
+    {
+        var r = new Rectangle(0, 0, src.Width, src.Height);
+        var s = src.LockBits(r, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
+        var d = dst.LockBits(r, ImageLockMode.WriteOnly, PixelFormat.Format32bppRgb);
+        try
+        {
+            if (s.Stride == d.Stride)
+            {
+                CopyMemory(d.Scan0, s.Scan0, (UIntPtr)(s.Stride * src.Height));
+            }
+            else
+            {
+                for (int row = 0; row < src.Height; row++)
+                    CopyMemory(d.Scan0 + row * d.Stride, s.Scan0 + row * s.Stride, (UIntPtr)(src.Width * 4));
+            }
+        }
+        finally
+        {
+            src.UnlockBits(s);
+            dst.UnlockBits(d);
+        }
     }
 
     private void DrawCursor(Graphics g)
@@ -249,15 +322,47 @@ public sealed class ScreenRecorder
         }
     }
 
-    /// <summary>H.264/MP4 sink writer with an RGB32 top-down input stream.</summary>
-    internal static IMFSinkWriter CreateWriter(string path, int w, int h, int fps, out int streamIndex)
+    /// <summary>
+    /// H.264/MP4 sink writer (RGB32 top-down input unless <paramref name="inputType"/>
+    /// is given), with BeginWriting already called. Prefers the hardware
+    /// encoder, but falls back to the software one when the hardware MFT
+    /// refuses a short GOP — one keyframe per second is what keeps seeking
+    /// and trim-scrubbing responsive, and some hardware ICodecAPI
+    /// implementations are stubs.
+    /// </summary>
+    internal static IMFSinkWriter CreateWriter(string path, int w, int h, int fpsNum, int fpsDen,
+        IMFMediaType? inputType, out int streamIndex)
+    {
+        int gop = Math.Max(1, fpsNum / Math.Max(1, fpsDen));
+
+        var writer = CreateWriterCore(path, w, h, fpsNum, fpsDen, inputType, hardware: true, out streamIndex);
+        if (TrySetGopSize(writer, streamIndex, gop))
+        {
+            Mf.Check(writer.BeginWriting());
+            return writer;
+        }
+        Mf.Check(writer.BeginWriting());
+        if (TrySetGopSize(writer, streamIndex, gop)) // some encoders only accept it while streaming
+            return writer;
+
+        Diag("gop: hardware encoder refused, using software encoder");
+        Mf.Release(writer); // recreating from the URL truncates the file
+        writer = CreateWriterCore(path, w, h, fpsNum, fpsDen, inputType, hardware: false, out streamIndex);
+        TrySetGopSize(writer, streamIndex, gop);
+        Mf.Check(writer.BeginWriting());
+        return writer;
+    }
+
+    private static IMFSinkWriter CreateWriterCore(string path, int w, int h, int fpsNum, int fpsDen,
+        IMFMediaType? inputType, bool hardware, out int streamIndex)
     {
         Mf.Check(Mf.MFCreateAttributes(out var attrs, 2));
         var key = Mf.MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS;
-        Mf.Check(attrs.SetUINT32(ref key, 1));
+        Mf.Check(attrs.SetUINT32(ref key, hardware ? 1u : 0u));
         key = Mf.MF_SINK_WRITER_DISABLE_THROTTLING;
         Mf.Check(attrs.SetUINT32(ref key, 1));
 
+        int fps = Math.Max(1, fpsNum / Math.Max(1, fpsDen));
         IMFMediaType? outType = null, inType = null;
         try
         {
@@ -270,10 +375,18 @@ public sealed class ScreenRecorder
             Mf.Check(outType.SetUINT32(ref key, Bitrate(w, h, fps)));
             key = Mf.MF_MT_INTERLACE_MODE;
             Mf.Check(outType.SetUINT32(ref key, Mf.MFVideoInterlace_Progressive));
+            key = Mf.MF_MT_MAX_KEYFRAME_SPACING;
+            Mf.Check(outType.SetUINT32(ref key, (uint)fps));
             Mf.SetSize(outType, Mf.MF_MT_FRAME_SIZE, w, h);
-            Mf.SetRatio(outType, Mf.MF_MT_FRAME_RATE, fps, 1);
+            Mf.SetRatio(outType, Mf.MF_MT_FRAME_RATE, fpsNum, fpsDen);
             Mf.SetRatio(outType, Mf.MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
             Mf.Check(writer.AddStream(outType, out streamIndex));
+
+            if (inputType is not null)
+            {
+                Mf.Check(writer.SetInputMediaType(streamIndex, inputType, null));
+                return writer;
+            }
 
             Mf.Check(Mf.MFCreateMediaType(out inType));
             Mf.SetGuid(inType, Mf.MF_MT_MAJOR_TYPE, Mf.MFMediaType_Video);
@@ -285,11 +398,9 @@ public sealed class ScreenRecorder
             key = Mf.MF_MT_DEFAULT_STRIDE;
             Mf.Check(inType.SetUINT32(ref key, (uint)(w * 4))); // positive stride = top-down rows
             Mf.SetSize(inType, Mf.MF_MT_FRAME_SIZE, w, h);
-            Mf.SetRatio(inType, Mf.MF_MT_FRAME_RATE, fps, 1);
+            Mf.SetRatio(inType, Mf.MF_MT_FRAME_RATE, fpsNum, fpsDen);
             Mf.SetRatio(inType, Mf.MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
             Mf.Check(writer.SetInputMediaType(streamIndex, inType, null));
-
-            Mf.Check(writer.BeginWriting());
             return writer;
         }
         finally
@@ -303,6 +414,66 @@ public sealed class ScreenRecorder
     /// <summary>~0.1 bits per pixel per frame — crisp for screen content, small files.</summary>
     internal static uint Bitrate(int w, int h, int fps) =>
         (uint)Math.Clamp((long)(w * (double)h * fps * 0.10), 1_000_000, 16_000_000);
+
+    /// <summary>The encoder MFT's codec configuration interface, or null.</summary>
+    internal static ICodecAPI? GetCodecApi(IMFSinkWriter writer, int streamIndex)
+    {
+        try
+        {
+            var service = Guid.Empty;
+            var iid = typeof(ICodecAPI).GUID;
+            if (writer.GetServiceForStream(streamIndex, ref service, ref iid, out IntPtr p) != 0)
+                return null;
+            var codec = (ICodecAPI)Marshal.GetObjectForIUnknown(p);
+            Marshal.Release(p);
+            return codec;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Marks the next encoded frame as an IDR keyframe (best effort).</summary>
+    internal static void ForceKeyFrame(ICodecAPI codec)
+    {
+        try
+        {
+            var key = Mf.CODECAPI_AVEncVideoForceKeyFrame;
+            var value = Mf.Variant.FromUInt32(1);
+            codec.SetValue(ref key, ref value);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Ask the encoder for one keyframe per second via ICodecAPI (the media
+    /// type's MF_MT_MAX_KEYFRAME_SPACING is ignored by the H.264 MFT).
+    /// Returns true when the encoder accepted it.
+    /// </summary>
+    private static bool TrySetGopSize(IMFSinkWriter writer, int streamIndex, int gopFrames)
+    {
+        try
+        {
+            var codec = GetCodecApi(writer, streamIndex);
+            if (codec is null)
+            {
+                Diag("gop: encoder exposes no ICodecAPI");
+                return false;
+            }
+            var key = Mf.CODECAPI_AVEncMPVGOPSize;
+            var value = Mf.Variant.FromUInt32((uint)gopFrames);
+            int hr = codec.SetValue(ref key, ref value);
+            Diag(hr == 0 ? $"gop: {gopFrames} frames" : $"gop: SetValue failed 0x{hr:X8}");
+            Mf.Release(codec);
+            return hr == 0;
+        }
+        catch (Exception ex)
+        {
+            Diag($"gop: {ex.Message}");
+            return false;
+        }
+    }
 
     private static BitmapSource ToBitmapSource(Bitmap bmp)
     {

@@ -15,8 +15,9 @@ public static class VideoTrimmer
 
         IMFAttributes? readerAttrs = null;
         IMFSourceReader? reader = null;
-        IMFMediaType? rgb = null, decoded = null, native = null, outType = null;
+        IMFMediaType? rgb = null, decoded = null, native = null;
         IMFSinkWriter? writer = null;
+        ICodecAPI? codec = null;
 
         try
         {
@@ -53,33 +54,10 @@ public static class VideoTrimmer
                 }
             }
 
-            Mf.Check(Mf.MFCreateAttributes(out var writerAttrs, 2));
-            key = Mf.MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS;
-            Mf.Check(writerAttrs.SetUINT32(ref key, 1));
-            key = Mf.MF_SINK_WRITER_DISABLE_THROTTLING;
-            Mf.Check(writerAttrs.SetUINT32(ref key, 1));
-            try
-            {
-                Mf.Check(Mf.MFCreateSinkWriterFromURL(dst, IntPtr.Zero, writerAttrs, out writer));
-            }
-            finally
-            {
-                Mf.Release(writerAttrs);
-            }
-
-            Mf.Check(Mf.MFCreateMediaType(out outType));
-            Mf.SetGuid(outType, Mf.MF_MT_MAJOR_TYPE, Mf.MFMediaType_Video);
-            Mf.SetGuid(outType, Mf.MF_MT_SUBTYPE, Mf.MFVideoFormat_H264);
-            key = Mf.MF_MT_AVG_BITRATE;
-            Mf.Check(outType.SetUINT32(ref key, ScreenRecorder.Bitrate(w, h, Math.Max(1, fpsNum / Math.Max(1, fpsDen)))));
-            key = Mf.MF_MT_INTERLACE_MODE;
-            Mf.Check(outType.SetUINT32(ref key, Mf.MFVideoInterlace_Progressive));
-            Mf.SetSize(outType, Mf.MF_MT_FRAME_SIZE, w, h);
-            Mf.SetRatio(outType, Mf.MF_MT_FRAME_RATE, fpsNum, fpsDen);
-            Mf.SetRatio(outType, Mf.MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
-            Mf.Check(writer.AddStream(outType, out int stream));
-            Mf.Check(writer.SetInputMediaType(stream, decoded, null));
-            Mf.Check(writer.BeginWriting());
+            writer = ScreenRecorder.CreateWriter(dst, w, h, fpsNum, fpsDen, decoded, out int stream);
+            codec = ScreenRecorder.GetCodecApi(writer, stream);
+            int gop = Math.Max(1, fpsNum / Math.Max(1, fpsDen));
+            int written = 0;
 
             // Seek near the start point; the reader resumes at the previous
             // keyframe, so early decoded frames are dropped below.
@@ -106,8 +84,11 @@ public static class VideoTrimmer
                     Mf.Check(sample.GetSampleTime(out long t));
                     if (t < startT) continue;
                     if (t > endT) break;
+                    if (codec is not null && written % gop == 0)
+                        ScreenRecorder.ForceKeyFrame(codec);
                     Mf.Check(sample.SetSampleTime(t - startT));
                     Mf.Check(writer.WriteSample(stream, sample));
+                    written++;
                     progress?.Invoke((t - startT) / span);
                 }
                 finally
@@ -121,8 +102,8 @@ public static class VideoTrimmer
         }
         finally
         {
+            Mf.Release(codec);
             Mf.Release(writer);
-            Mf.Release(outType);
             Mf.Release(native);
             Mf.Release(decoded);
             Mf.Release(rgb);

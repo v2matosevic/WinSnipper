@@ -21,8 +21,14 @@ public partial class TrimWindow : Window
     private TimeSpan _trimEnd = TimeSpan.Zero;
     private bool _playing;
     private bool _scrubbing;
+    private bool _wasPlayingBeforeScrub;
     private bool _updatingSeek;
     private bool _busy;
+
+    // Seeks are throttled: MediaElement decodes from the previous keyframe on
+    // every Position set, so seeking per slider pixel makes scrubbing choppy.
+    private TimeSpan? _pendingSeek;
+    private DateTime _lastSeek = DateTime.MinValue;
 
     public TrimWindow(string path)
     {
@@ -45,6 +51,16 @@ public partial class TrimWindow : Window
             _tick.Stop();
             Player.Close();
         };
+    }
+
+    protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        base.OnPreviewKeyDown(e);
+        if (e.Key == System.Windows.Input.Key.Space)
+        {
+            e.Handled = true;
+            TogglePlay();
+        }
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -97,35 +113,62 @@ public partial class TrimWindow : Window
 
     private void SyncFromPlayer()
     {
-        if (_scrubbing) return;
+        if (_scrubbing)
+        {
+            ApplyPendingSeek(force: true); // catch up between throttled applies
+            return;
+        }
+        if (_pendingSeek is not null)
+        {
+            ApplyPendingSeek(force: true);
+            return;
+        }
         _updatingSeek = true;
         Seek.Value = Player.Position.TotalMilliseconds;
         _updatingSeek = false;
         UpdateLabels();
     }
 
-    private void Seek_DragStarted(object sender, DragStartedEventArgs e) => _scrubbing = true;
+    private void Seek_DragStarted(object sender, DragStartedEventArgs e)
+    {
+        _scrubbing = true;
+        _wasPlayingBeforeScrub = _playing;
+        if (_playing) TogglePlay(); // seeking a playing MediaElement stutters badly
+    }
 
     private void Seek_DragCompleted(object sender, DragCompletedEventArgs e)
     {
         _scrubbing = false;
-        Player.Position = TimeSpan.FromMilliseconds(Seek.Value);
-        UpdateLabels();
+        _pendingSeek = TimeSpan.FromMilliseconds(Seek.Value);
+        ApplyPendingSeek(force: true);
+        if (_wasPlayingBeforeScrub) TogglePlay();
     }
 
     private void Seek_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_updatingSeek) return;
-        // Direct click on the track (no thumb drag) or live scrub preview.
-        Player.Position = TimeSpan.FromMilliseconds(e.NewValue);
-        UpdateLabels();
+        _pendingSeek = TimeSpan.FromMilliseconds(e.NewValue);
+        UpdateLabels();      // label follows the thumb immediately …
+        ApplyPendingSeek();  // … the actual decode is rate-limited
+    }
+
+    private void ApplyPendingSeek(bool force = false)
+    {
+        if (_pendingSeek is not { } target) return;
+        if (!force && (DateTime.UtcNow - _lastSeek).TotalMilliseconds < 70) return;
+        _pendingSeek = null;
+        _lastSeek = DateTime.UtcNow;
+        Player.Position = target;
     }
 
     // ---------- trim range ----------
 
+    /// <summary>Where the user currently is: the scrub target if one is in flight.</summary>
+    private TimeSpan CurrentPosition => _pendingSeek ?? Player.Position;
+
     private void SetStart_Click(object sender, RoutedEventArgs e)
     {
-        _trimStart = Player.Position;
+        _trimStart = CurrentPosition;
         if (_trimEnd <= _trimStart) _trimEnd = _duration;
         UpdateLabels();
         UpdateRangeVisuals();
@@ -133,7 +176,7 @@ public partial class TrimWindow : Window
 
     private void SetEnd_Click(object sender, RoutedEventArgs e)
     {
-        _trimEnd = Player.Position;
+        _trimEnd = CurrentPosition;
         if (_trimStart >= _trimEnd) _trimStart = TimeSpan.Zero;
         UpdateLabels();
         UpdateRangeVisuals();
@@ -141,7 +184,7 @@ public partial class TrimWindow : Window
 
     private void UpdateLabels()
     {
-        TimeLabel.Text = $"{Fmt(Player.Position)} / {Fmt(_duration)}";
+        TimeLabel.Text = $"{Fmt(CurrentPosition)} / {Fmt(_duration)}";
         RangeLabel.Text = $"{Fmt(_trimStart)} → {Fmt(_trimEnd)}";
         bool trimmed = _trimStart > TimeSpan.Zero || (_duration > TimeSpan.Zero && _trimEnd < _duration);
         SaveBtn.IsEnabled = !_busy && _duration > TimeSpan.Zero && _trimEnd > _trimStart && trimmed;

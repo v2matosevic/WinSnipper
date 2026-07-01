@@ -120,6 +120,7 @@
                     <Rectangle x:Name="EndMarker" Width="3" Height="20" Canvas.Top="7" Fill="#FF53A7FF" RadiusX="1.5" RadiusY="1.5"/>
                 </Canvas>
                 <Slider x:Name="Seek" VerticalAlignment="Center" Minimum="0" Maximum="1"
+                        IsMoveToPointEnabled="True"
                         Thumb.DragStarted="Seek_DragStarted" Thumb.DragCompleted="Seek_DragCompleted"
                         ValueChanged="Seek_ValueChanged"/>
             </Grid>
