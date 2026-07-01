@@ -28,6 +28,15 @@ public static class Util
         }
     }
 
+    public static string RecordHotkeyDisplay
+    {
+        get
+        {
+            var s = Settings.Current;
+            return FormatHotkey(s.RecModWin, s.RecModCtrl, s.RecModAlt, s.RecModShift, s.RecHotkeyVk);
+        }
+    }
+
     public static void SavePng(BitmapSource image, string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

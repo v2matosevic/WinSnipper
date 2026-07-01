@@ -11,7 +11,7 @@ public sealed class SnipManager
 
     public void StartSnip()
     {
-        if (_active) return;
+        if (_active || SnipOverlay.IsOpen) return;
         _active = true;
         try
         {

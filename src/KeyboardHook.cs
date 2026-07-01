@@ -28,6 +28,7 @@ public sealed class KeyboardHook : IDisposable
     private bool _disposed;
 
     public event Action? HotkeyPressed;
+    public event Action? RecordHotkeyPressed;
 
     /// <summary>
     /// While set, every key-down is routed here first (used by the settings
@@ -60,27 +61,44 @@ public sealed class KeyboardHook : IDisposable
 
                 var s = Settings.Current;
                 bool win = IsDown(VK_LWIN) || IsDown(VK_RWIN);
-                if (data.vkCode == s.HotkeyVk
-                    && win == s.ModWin
-                    && IsDown(VK_SHIFT) == s.ModShift
-                    && IsDown(VK_CONTROL) == s.ModCtrl
-                    && IsDown(VK_MENU) == s.ModAlt
-                    && (s.ModWin || s.ModShift || s.ModCtrl || s.ModAlt))
-                {
-                    if (s.ModWin)
-                    {
-                        // The OS saw Win-down but will never see the key we swallow;
-                        // without a dummy keystroke it would open the Start menu on Win-up.
-                        keybd_event(0xFF, 0, 0, UIntPtr.Zero);
-                        keybd_event(0xFF, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-                    }
+                bool shift = IsDown(VK_SHIFT);
+                bool ctrl = IsDown(VK_CONTROL);
+                bool alt = IsDown(VK_MENU);
 
+                if (Matches(data.vkCode, win, shift, ctrl, alt,
+                        s.HotkeyVk, s.ModWin, s.ModShift, s.ModCtrl, s.ModAlt))
+                {
+                    SuppressStartMenu(s.ModWin);
                     HotkeyPressed?.Invoke();
                     return (IntPtr)1; // swallow
+                }
+                if (Matches(data.vkCode, win, shift, ctrl, alt,
+                        s.RecHotkeyVk, s.RecModWin, s.RecModShift, s.RecModCtrl, s.RecModAlt))
+                {
+                    SuppressStartMenu(s.RecModWin);
+                    RecordHotkeyPressed?.Invoke();
+                    return (IntPtr)1;
                 }
             }
         }
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
+    }
+
+    private static bool Matches(uint vk, bool win, bool shift, bool ctrl, bool alt,
+        uint cfgVk, bool cfgWin, bool cfgShift, bool cfgCtrl, bool cfgAlt) =>
+        vk == cfgVk
+        && win == cfgWin && shift == cfgShift && ctrl == cfgCtrl && alt == cfgAlt
+        && (cfgWin || cfgShift || cfgCtrl || cfgAlt);
+
+    /// <summary>
+    /// The OS saw Win-down but will never see the key we swallow; without a
+    /// dummy keystroke it would open the Start menu on Win-up.
+    /// </summary>
+    private static void SuppressStartMenu(bool usesWin)
+    {
+        if (!usesWin) return;
+        keybd_event(0xFF, 0, 0, UIntPtr.Zero);
+        keybd_event(0xFF, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     }
 
     private static bool IsDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;

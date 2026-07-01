@@ -54,13 +54,14 @@
             <Border.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="Pin (keep on screen)" Click="Pin_Click"/>
-                    <MenuItem Header="Edit" Click="Edit_Click"/>
-                    <MenuItem Header="Copy image" Click="Copy_Click"/>
+                    <MenuItem x:Name="EditMenuItem" Header="Edit" Click="Edit_Click"/>
+                    <MenuItem x:Name="TrimMenuItem" Header="Trim…" Click="Edit_Click" Visibility="Collapsed"/>
+                    <MenuItem x:Name="CopyMenuItem" Header="Copy image" Click="Copy_Click"/>
                     <MenuItem x:Name="OcrMenuItem" Header="Copy text (OCR)" Click="CopyText_Click"/>
                     <MenuItem Header="Copy file path" Click="CopyPath_Click"/>
-                    <MenuItem Header="Save as…" Click="SaveAs_Click"/>
+                    <MenuItem x:Name="SaveAsMenuItem" Header="Save as…" Click="SaveAs_Click"/>
                     <Separator/>
-                    <MenuItem Header="Open in default viewer" Click="OpenDefault_Click"/>
+                    <MenuItem x:Name="OpenDefaultMenuItem" Header="Open in default viewer" Click="OpenDefault_Click"/>
                     <MenuItem Header="Show in folder" Click="ShowInFolder_Click"/>
                     <Separator/>
                     <MenuItem Header="Dismiss" Click="CloseItem_Click"/>
@@ -74,6 +75,13 @@
                        Stretch="Uniform"
                        SizeChanged="Thumb_SizeChanged"
                        RenderOptions.BitmapScalingMode="HighQuality"/>
+                <Border x:Name="PlayBadge" Visibility="Collapsed" IsHitTestVisible="False"
+                        Width="34" Height="34" CornerRadius="17" Background="#B31C1D22"
+                        BorderBrush="#66FFFFFF" BorderThickness="1"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="▶" Foreground="#FFE8EAEE" FontSize="14"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="3,0,0,0"/>
+                </Border>
                 <Button x:Name="CloseBtn" Content="✕" ToolTip="Dismiss"
                         Style="{StaticResource CloseBtnStyle}"
                         VerticalAlignment="Top" HorizontalAlignment="Right"

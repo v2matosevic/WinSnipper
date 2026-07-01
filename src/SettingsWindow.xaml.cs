@@ -5,20 +5,37 @@ namespace WinSnipper;
 
 public partial class SettingsWindow : Window
 {
+    private enum HotkeyTarget { None, Snip, Record }
+
+    private static readonly int[] FpsChoices = { 15, 30, 60 };
+    private static readonly int[] AutoDeleteChoices = { 7, 14, 30, 60, 90 };
+
     private readonly Settings _draft = Settings.Current.Clone();
-    private bool _capturing;
+    private HotkeyTarget _capturing = HotkeyTarget.None;
 
     public SettingsWindow()
     {
         InitializeComponent();
 
         HotkeyBox.Content = Util.CurrentHotkeyDisplay;
+        RecHotkeyBox.Content = Util.RecordHotkeyDisplay;
         DismissSlider.Value = _draft.DismissSeconds;
         DismissSlider.ValueChanged += (_, e) => DismissLabel.Text = $"{(int)e.NewValue} s";
         DismissLabel.Text = $"{_draft.DismissSeconds} s";
         SaveDirText.Text = _draft.SaveDir;
         ClipboardCheck.IsChecked = _draft.CopyToClipboard;
         StartupCheck.IsChecked = StartupManager.IsEnabled();
+
+        FpsCombo.SelectedIndex = Math.Max(0, Array.IndexOf(FpsChoices, _draft.RecordFps));
+        CursorCheck.IsChecked = _draft.RecordCursor;
+
+        AutoDeleteCheck.IsChecked = _draft.AutoDeleteDays > 0;
+        int delIdx = Array.IndexOf(AutoDeleteChoices, _draft.AutoDeleteDays);
+        AutoDeleteCombo.SelectedIndex = delIdx >= 0 ? delIdx : 2; // 30 days
+        AutoDeleteCombo.IsEnabled = _draft.AutoDeleteDays > 0;
+        AutoDeleteCheck.Checked += (_, _) => AutoDeleteCombo.IsEnabled = true;
+        AutoDeleteCheck.Unchecked += (_, _) => AutoDeleteCombo.IsEnabled = false;
+
         RefreshOcrStatus();
 
         Closed += (_, _) => StopCapture();
@@ -36,24 +53,30 @@ public partial class SettingsWindow : Window
 
     // ---------- hotkey capture ----------
 
-    private void HotkeyBox_Click(object sender, RoutedEventArgs e)
+    private void HotkeyBox_Click(object sender, RoutedEventArgs e) => ToggleCapture(HotkeyTarget.Snip);
+
+    private void RecHotkeyBox_Click(object sender, RoutedEventArgs e) => ToggleCapture(HotkeyTarget.Record);
+
+    private void ToggleCapture(HotkeyTarget target)
     {
-        if (_capturing)
-        {
-            StopCapture();
-            return;
-        }
-        _capturing = true;
-        HotkeyBox.Content = "Press a combination…";
+        bool cancel = _capturing == target; // clicking the active box cancels
+        StopCapture();
+        if (cancel) return;
+        _capturing = target;
+        BoxFor(target).Content = "Press a combination…";
         KeyboardHook.CaptureInterceptor = OnCaptureKey;
     }
 
+    private System.Windows.Controls.Button BoxFor(HotkeyTarget target) =>
+        target == HotkeyTarget.Record ? RecHotkeyBox : HotkeyBox;
+
     private void StopCapture()
     {
-        if (!_capturing) return;
-        _capturing = false;
+        if (_capturing == HotkeyTarget.None) return;
+        _capturing = HotkeyTarget.None;
         KeyboardHook.CaptureInterceptor = null;
         HotkeyBox.Content = Util.FormatHotkey(_draft.ModWin, _draft.ModCtrl, _draft.ModAlt, _draft.ModShift, _draft.HotkeyVk);
+        RecHotkeyBox.Content = Util.FormatHotkey(_draft.RecModWin, _draft.RecModCtrl, _draft.RecModAlt, _draft.RecModShift, _draft.RecHotkeyVk);
     }
 
     /// <summary>Runs from the low-level hook (UI thread). Swallows every key while capturing.</summary>
@@ -78,11 +101,22 @@ public partial class SettingsWindow : Window
         if (!(win || shift || ctrl || alt))
             return true;
 
-        _draft.HotkeyVk = vk;
-        _draft.ModWin = win;
-        _draft.ModShift = shift;
-        _draft.ModCtrl = ctrl;
-        _draft.ModAlt = alt;
+        if (_capturing == HotkeyTarget.Record)
+        {
+            _draft.RecHotkeyVk = vk;
+            _draft.RecModWin = win;
+            _draft.RecModShift = shift;
+            _draft.RecModCtrl = ctrl;
+            _draft.RecModAlt = alt;
+        }
+        else
+        {
+            _draft.HotkeyVk = vk;
+            _draft.ModWin = win;
+            _draft.ModShift = shift;
+            _draft.ModCtrl = ctrl;
+            _draft.ModAlt = alt;
+        }
         Dispatcher.BeginInvoke(StopCapture);
         return true;
     }
@@ -149,6 +183,11 @@ public partial class SettingsWindow : Window
         StopCapture();
         _draft.DismissSeconds = (int)DismissSlider.Value;
         _draft.CopyToClipboard = ClipboardCheck.IsChecked == true;
+        _draft.RecordFps = FpsChoices[Math.Clamp(FpsCombo.SelectedIndex, 0, FpsChoices.Length - 1)];
+        _draft.RecordCursor = CursorCheck.IsChecked == true;
+        _draft.AutoDeleteDays = AutoDeleteCheck.IsChecked == true
+            ? AutoDeleteChoices[Math.Clamp(AutoDeleteCombo.SelectedIndex, 0, AutoDeleteChoices.Length - 1)]
+            : 0;
         _draft.Save();
         try { StartupManager.SetEnabled(StartupCheck.IsChecked == true); } catch { }
         Close();

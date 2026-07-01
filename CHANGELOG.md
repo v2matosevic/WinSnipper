@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 — 2026-07-01
+
+- **Screen recording** — Win+Shift+D (configurable) selects a region with the
+  same overlay as snips and records it to H.264 MP4 via Media Foundation
+  (hardware encoder when available, zero new dependencies, works in the lite
+  build). Press the hotkey again or use the floating HUD (elapsed / pause /
+  stop) to finish; the HUD and region border are excluded from capture so
+  they never appear in the video. Cursor on/off and 15/30/60 fps in Settings
+- **Trim editor** — click a recording's floating thumbnail (or `--trim
+  <file>`) to open a player with Set start / Set end markers; saves a
+  frame-accurate "(trimmed)" copy or replaces the original
+- **Auto-delete** — opt-in Settings toggle recycles snips and recordings
+  older than 7/14/30/60/90 days (Recycle Bin, never a hard delete; only
+  files WinSnipper created are touched)
+- Recordings land on the clipboard as a pasteable file, and the thumbnail
+  drags out into any app just like snips
+- `--selftest` now covers a record → trim round-trip;
+  `%APPDATA%\WinSnipper\recorder.log` traces each recording session
+
 ## 0.5.1 — 2026-06-12
 
 - Removed the redundant Copy button from the editor toolbar — Ctrl+C still

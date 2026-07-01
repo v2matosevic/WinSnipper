@@ -10,7 +10,7 @@ public sealed class TrayIcon : IDisposable
     private readonly NotifyIcon _icon;
     private readonly Icon _glyph;
 
-    public TrayIcon(Action onNewSnip, Action onSettings, Action onExit)
+    public TrayIcon(Action onNewSnip, Action onNewRecording, Action onSettings, Action onExit)
     {
         // Use the exe's embedded icon; fall back to the runtime-drawn glyph
         // (e.g. when running through the dotnet host).
@@ -23,6 +23,10 @@ public sealed class TrayIcon : IDisposable
         var snipItem = new ToolStripMenuItem("New snip") { ShortcutKeyDisplayString = Util.CurrentHotkeyDisplay };
         snipItem.Click += (_, _) => onNewSnip();
         menu.Items.Add(snipItem);
+
+        var recordItem = new ToolStripMenuItem("New recording") { ShortcutKeyDisplayString = Util.RecordHotkeyDisplay };
+        recordItem.Click += (_, _) => onNewRecording();
+        menu.Items.Add(recordItem);
 
         var folderItem = new ToolStripMenuItem("Open snips folder");
         folderItem.Click += (_, _) => OpenSnipsFolder();
@@ -52,6 +56,7 @@ public sealed class TrayIcon : IDisposable
         Settings.Changed += () =>
         {
             snipItem.ShortcutKeyDisplayString = Util.CurrentHotkeyDisplay;
+            recordItem.ShortcutKeyDisplayString = Util.RecordHotkeyDisplay;
             _icon.Text = $"WinSnipper — {Util.CurrentHotkeyDisplay} to snip";
         };
     }

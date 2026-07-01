@@ -23,20 +23,36 @@ public partial class FloatingThumb : Window
     private static TimeSpan DismissAfter => TimeSpan.FromSeconds(Settings.Current.DismissSeconds);
 
     private readonly string _path;
+    private readonly bool _isVideo;
     private BitmapSource _img;
     private EditorWindow? _editor;
+    private TrimWindow? _trim;
     private readonly DispatcherTimer _dismissTimer;
     private bool _fading;
 
-    public FloatingThumb(string path, BitmapSource image)
+    public FloatingThumb(string path, BitmapSource image, bool isVideo = false)
     {
         InitializeComponent();
         _path = path;
+        _isVideo = isVideo;
         _img = image;
         Thumb.Source = image;
-        Card.ToolTip = $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nClick to edit · drag into any app to drop the file";
+        Card.ToolTip = isVideo
+            ? $"{IOPath.GetFileName(path)}\nClick to trim · drag into any app to drop the file"
+            : $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nClick to edit · drag into any app to drop the file";
         if (!Util.OcrSupported)
             OcrMenuItem.Visibility = Visibility.Collapsed;
+        if (isVideo)
+        {
+            // Image-only actions make no sense for an MP4.
+            EditMenuItem.Visibility = Visibility.Collapsed;
+            CopyMenuItem.Visibility = Visibility.Collapsed;
+            OcrMenuItem.Visibility = Visibility.Collapsed;
+            SaveAsMenuItem.Visibility = Visibility.Collapsed;
+            TrimMenuItem.Visibility = Visibility.Visible;
+            OpenDefaultMenuItem.Header = "Open in default player";
+            PlayBadge.Visibility = Visibility.Visible;
+        }
         Loaded += (_, _) =>
         {
             PositionStacked();
@@ -130,7 +146,8 @@ public partial class FloatingThumb : Window
 
         _maybeDrag = false;
         var data = new DataObject(DataFormats.FileDrop, new[] { _path });
-        data.SetImage(_img); // for targets that accept bitmaps rather than files
+        if (!_isVideo)
+            data.SetImage(_img); // for targets that accept bitmaps rather than files
         _draggingOut = true;
         try
         {
@@ -166,9 +183,22 @@ public partial class FloatingThumb : Window
         Thumb.Clip = new System.Windows.Media.RectangleGeometry(
             new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 7, 7);
 
-    // Opening the editor consumes the thumbnail — it disappears immediately.
+    // Opening the editor (or trim window for videos) consumes the thumbnail.
     private void OpenEditor()
     {
+        if (_isVideo)
+        {
+            if (_trim is { IsLoaded: true })
+            {
+                _trim.Activate();
+                return;
+            }
+            _trim = new TrimWindow(_path);
+            _trim.Show();
+            _trim.Activate();
+            Close();
+            return;
+        }
         if (_editor is { IsLoaded: true })
         {
             _editor.Activate();

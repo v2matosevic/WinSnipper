@@ -24,9 +24,15 @@ public partial class SnipOverlay : Window
     /// <summary>Selected region relative to the captured bitmap, in pixels.</summary>
     public Int32Rect? SelectionPx { get; private set; }
 
+    /// <summary>True while any selection overlay is on screen — the snip and
+    /// record hotkeys must not stack two fullscreen overlays.</summary>
+    public static bool IsOpen { get; private set; }
+
     public SnipOverlay(BitmapSource screenshot, Int32Rect virtualScreenPx)
     {
         InitializeComponent();
+        IsOpen = true;
+        Closed += (_, _) => IsOpen = false;
         _vs = virtualScreenPx;
         ScreenImage.Source = screenshot;
         Loaded += (_, _) =>

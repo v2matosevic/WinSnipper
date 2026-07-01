@@ -12,6 +12,7 @@ public partial class App : Application
     private KeyboardHook? _hook;
     private TrayIcon? _tray;
     private readonly SnipManager _snips = new();
+    private readonly Recording.RecordingManager _recordings = new();
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -22,6 +23,13 @@ public partial class App : Application
         if (e.Args.Contains("--selftest"))
         {
             RunSelfTest();
+            return;
+        }
+
+        // Open the trim editor for an existing recording, no tray/hotkeys.
+        if (e.Args.Length == 2 && e.Args[0] == "--trim" && File.Exists(e.Args[1]))
+        {
+            new TrimWindow(e.Args[1]).Show();
             return;
         }
 
@@ -36,13 +44,16 @@ public partial class App : Application
 
         _tray = new TrayIcon(
             onNewSnip: () => SnipFromMenu(),
+            onNewRecording: () => RecordFromMenu(),
             onSettings: ShowSettings,
             onExit: Shutdown);
+        _recordings.OnError = msg => _tray?.ShowError(msg);
 
         try
         {
             _hook = new KeyboardHook();
             _hook.HotkeyPressed += () => Dispatcher.BeginInvoke(_snips.StartSnip);
+            _hook.RecordHotkeyPressed += () => Dispatcher.BeginInvoke(_recordings.Toggle);
             StartHookWatchdog();
         }
         catch (Exception ex)
@@ -51,6 +62,7 @@ public partial class App : Application
         }
 
         _ = CheckForUpdatesLoop();
+        _ = AutoCleanup.RunLoopAsync();
     }
 
     // ---------- stability ----------
@@ -127,16 +139,40 @@ public partial class App : Application
 
     private async void RunSelfTest()
     {
+        int exit = 0;
         try
         {
             var (shot, _) = ScreenCapture.CaptureVirtualScreen();
             Util.SavePng(shot, Path.Combine(Util.SnipsDir, "_selftest.png"));
             string? ocr = Util.OcrSupported ? await Util.OcrAsync(shot) : "(OCR not in this build)";
             File.WriteAllText(Path.Combine(Util.SnipsDir, "_selftest.txt"), ocr ?? "(OCR unavailable)");
+
+            // Recording round-trip: 2s of a screen corner → MP4 → trim to the middle 1s.
+            string vid = Path.Combine(Util.SnipsDir, "_selftest.mp4");
+            string trimmed = Path.Combine(Util.SnipsDir, "_selftest_trim.mp4");
+            var rec = new Recording.ScreenRecorder(vid, new System.Windows.Int32Rect(0, 0, 320, 240), 30, includeCursor: true);
+            rec.Start();
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (rec.Elapsed < TimeSpan.FromSeconds(2) && rec.Error is null && DateTime.UtcNow < deadline)
+                await Task.Delay(100);
+            var frame = await rec.StopAsync();
+            if (rec.Error is not null) throw rec.Error;
+            if (frame is null || new FileInfo(vid).Length < 1000)
+                throw new Exception("selftest recording produced no usable MP4");
+            await Task.Run(() => Recording.VideoTrimmer.Trim(
+                vid, trimmed, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(1500)));
+            if (new FileInfo(trimmed).Length < 500)
+                throw new Exception("selftest trim produced no usable MP4");
+        }
+        catch (Exception ex)
+        {
+            Util.LogCrash("SelfTest", ex);
+            try { File.WriteAllText(Path.Combine(Util.SnipsDir, "_selftest_error.txt"), ex.ToString()); } catch { }
+            exit = 1;
         }
         finally
         {
-            Shutdown(0);
+            Shutdown(exit);
         }
     }
 
@@ -145,6 +181,12 @@ public partial class App : Application
     {
         await Task.Delay(300);
         _snips.StartSnip();
+    }
+
+    private async void RecordFromMenu()
+    {
+        await Task.Delay(300);
+        _recordings.Toggle();
     }
 
     private SettingsWindow? _settings;
@@ -163,6 +205,9 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // Don't leave a truncated MP4 behind if we quit mid-recording.
+        if (_recordings.IsRecording)
+            try { _recordings.StopAsync().Wait(TimeSpan.FromSeconds(5)); } catch { }
         _hook?.Dispose();
         _tray?.Dispose();
         _mutex?.ReleaseMutex();

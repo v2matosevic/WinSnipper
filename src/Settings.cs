@@ -12,9 +12,22 @@ public sealed class Settings
     public bool ModCtrl { get; set; }
     public bool ModAlt { get; set; }
 
+    // Recording hotkey: same shape, defaults to Win+Shift+D.
+    public uint RecHotkeyVk { get; set; } = 0x44; // D
+    public bool RecModWin { get; set; } = true;
+    public bool RecModShift { get; set; } = true;
+    public bool RecModCtrl { get; set; }
+    public bool RecModAlt { get; set; }
+
     public int DismissSeconds { get; set; } = 3;
     public string SaveDir { get; set; } = DefaultSaveDir;
     public bool CopyToClipboard { get; set; } = true;
+
+    public int RecordFps { get; set; } = 30;
+    public bool RecordCursor { get; set; } = true;
+
+    /// <summary>Recycle captures older than this many days; 0 disables.</summary>
+    public int AutoDeleteDays { get; set; }
 
     public static string DefaultSaveDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "WinSnipper");
