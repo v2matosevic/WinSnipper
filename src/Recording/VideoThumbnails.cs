@@ -97,28 +97,45 @@ public static class VideoThumbnails
         }
     }
 
-    private static BitmapSource ToBitmap(IMFSample sample, int w, int h, int stride, int targetHeight)
+    private static BitmapSource ToBitmap(IMFSample sample, int w, int h, int typeStride, int targetHeight)
     {
         Mf.Check(sample.ConvertToContiguousBuffer(out var buffer));
         try
         {
-            Mf.Check(buffer.Lock(out IntPtr data, IntPtr.Zero, IntPtr.Zero));
+            // Decoders pad rows (a 1206-px frame may have a 1216-px pitch);
+            // IMF2DBuffer reports the true pitch. Copying with the wrong
+            // stride produces diagonal smears.
+            IntPtr scan0 = IntPtr.Zero;
+            int pitch = 0;
+            bool locked2d = buffer is IMF2DBuffer b2 && b2.Lock2D(out scan0, out pitch) == 0;
+            if (!locked2d)
+            {
+                Mf.Check(buffer.Lock(out scan0, IntPtr.Zero, IntPtr.Zero));
+                pitch = typeStride != 0 ? typeStride : w * 4;
+
+                // Some pipelines hand back the CODED frame (macroblock-aligned,
+                // e.g. 1136×640 for a 1124×628 video) as a plain 1-D buffer
+                // while the media type still claims the display stride. Copying
+                // with that stride shears the image; derive the real pitch from
+                // the buffer size instead.
+                buffer.GetCurrentLength(out int len);
+                if (pitch * h != len)
+                {
+                    int codedH = (h + 15) & ~15;
+                    int derived = len / codedH;
+                    if (derived >= w * 4 && derived % 4 == 0)
+                        pitch = derived;
+                }
+            }
             try
             {
-                BitmapSource bmp;
-                if (stride >= 0)
-                {
-                    bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgr32, null, data, stride * h, stride);
-                }
-                else
-                {
-                    // Negative stride = bottom-up: flip rows into a managed buffer.
-                    int rowBytes = w * 4;
-                    var pixels = new byte[rowBytes * h];
-                    for (int row = 0; row < h; row++)
-                        Marshal.Copy(data + (h - 1 - row) * rowBytes, pixels, row * rowBytes, rowBytes);
-                    bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgr32, null, pixels, rowBytes);
-                }
+                // pitch is signed: scan0 is always display row 0, negative
+                // pitch walks upward in memory (bottom-up frames).
+                int rowBytes = w * 4;
+                var pixels = new byte[rowBytes * h];
+                for (int row = 0; row < h; row++)
+                    Marshal.Copy(scan0 + row * pitch, pixels, row * rowBytes, rowBytes);
+                BitmapSource bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgr32, null, pixels, rowBytes);
                 if (h > targetHeight)
                 {
                     double scale = targetHeight / (double)h;
@@ -130,7 +147,8 @@ public static class VideoThumbnails
             }
             finally
             {
-                buffer.Unlock();
+                if (locked2d) ((IMF2DBuffer)buffer).Unlock2D();
+                else buffer.Unlock();
             }
         }
         finally

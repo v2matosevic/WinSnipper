@@ -109,7 +109,7 @@ public partial class TrimWindow : Window
     {
         try
         {
-            var (frames, _) = await Task.Run(() => VideoThumbnails.Extract(_path, ThumbCount, 64));
+            var (frames, _) = await Task.Run(() => VideoThumbnails.Extract(_path, ThumbCount, 96));
             foreach (var f in frames)
             {
                 FilmStrip.Children.Add(new Image
@@ -267,6 +267,12 @@ public partial class TrimWindow : Window
         }
         _pendingSeek = _playhead;
         ApplyPendingSeek(); // visuals are instant, the decode is rate-limited
+        ShowTimeBadge(_drag switch
+        {
+            DragTarget.Start => _trimStart,
+            DragTarget.End => _trimEnd,
+            _ => _playhead,
+        });
         UpdateTimeline();
     }
 
@@ -275,12 +281,31 @@ public partial class TrimWindow : Window
         if (_drag == DragTarget.None) return;
         bool resumePlaying = _wasPlayingBeforeDrag && _drag == DragTarget.Playhead;
         _drag = DragTarget.None;
+        TimeBadge.Visibility = Visibility.Collapsed;
         TimelineHost.ReleaseMouseCapture();
         ApplyPendingSeek(force: true);
         if (resumePlaying) SetPlaying(true);
     }
 
-    private void Timeline_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateTimeline();
+    /// <summary>Small time bubble that follows whatever is being dragged.</summary>
+    private void ShowTimeBadge(TimeSpan t)
+    {
+        TimeBadgeText.Text = Fmt(t);
+        TimeBadge.Visibility = Visibility.Visible;
+        TimeBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double bw = TimeBadge.DesiredSize.Width;
+        double x = Math.Clamp(XOf(t) - bw / 2, 2, Math.Max(2, TimelineWidth - bw - 2));
+        Canvas.SetLeft(TimeBadge, x);
+        Canvas.SetTop(TimeBadge, 4);
+    }
+
+    private void Timeline_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Border.CornerRadius doesn't clip children; do it explicitly.
+        TimelineInner.Clip = new System.Windows.Media.RectangleGeometry(
+            new Rect(0, 0, TimelineHost.ActualWidth, TimelineHost.ActualHeight), 7, 7);
+        UpdateTimeline();
+    }
 
     private void UpdateTimeline()
     {

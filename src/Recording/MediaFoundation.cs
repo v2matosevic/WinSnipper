@@ -271,6 +271,20 @@ internal interface IMFMediaBuffer
     [PreserveSig] int GetMaxLength(out int length);
 }
 
+/// <summary>2-D aware view of a media buffer — the only reliable way to get
+/// the real row pitch of decoded frames (decoders pad rows for alignment).</summary>
+[ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("7DC9D5F9-9ED9-44EC-9BBF-0600BB589FBB")]
+internal interface IMF2DBuffer
+{
+    [PreserveSig] int Lock2D(out IntPtr scanline0, out int pitch);
+    [PreserveSig] int Unlock2D();
+    [PreserveSig] int GetScanline0AndPitch(out IntPtr scanline0, out int pitch);
+    [PreserveSig] int IsContiguousFormat(out int contiguous);
+    [PreserveSig] int GetContiguousLength(out int length);
+    [PreserveSig] int ContiguousCopyTo(IntPtr dest, int destSize);
+    [PreserveSig] int ContiguousCopyFrom(IntPtr src, int srcSize);
+}
+
 [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("3137F1CD-FE5E-4805-A5D8-FB477448CB3D")]
 internal interface IMFSinkWriter
 {

@@ -118,23 +118,38 @@
                     MouseMove="Timeline_MouseMove"
                     MouseLeftButtonUp="Timeline_MouseUp"
                     SizeChanged="Timeline_SizeChanged">
-                <Grid>
-                    <UniformGrid x:Name="FilmStrip" Rows="1" IsHitTestVisible="False"/>
+                <Grid x:Name="TimelineInner">
+                    <UniformGrid x:Name="FilmStrip" Rows="1" IsHitTestVisible="False"
+                                 RenderOptions.BitmapScalingMode="HighQuality"/>
                     <Canvas x:Name="TL" IsHitTestVisible="False">
-                        <Rectangle x:Name="DimL" Fill="#B3121317" Height="58"/>
-                        <Rectangle x:Name="DimR" Fill="#B3121317" Height="58"/>
+                        <Rectangle x:Name="DimL" Fill="#8C0E0F12" Height="58"/>
+                        <Rectangle x:Name="DimR" Fill="#8C0E0F12" Height="58"/>
                         <Border x:Name="SelFrame" BorderBrush="{StaticResource AccentBg}"
-                                BorderThickness="2" CornerRadius="4" Height="58"/>
-                        <Border x:Name="HandleL" Width="12" Height="58" Background="{StaticResource AccentBg}"
-                                CornerRadius="4,0,0,4">
-                            <Rectangle Width="2.5" Height="20" Fill="White" RadiusX="1.25" RadiusY="1.25"/>
+                                BorderThickness="2.5" CornerRadius="5" Height="58"/>
+                        <Border x:Name="HandleL" Width="14" Height="58" Background="{StaticResource AccentBg}"
+                                CornerRadius="5,0,0,5">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Rectangle Width="2" Height="18" Fill="#E6FFFFFF" RadiusX="1" RadiusY="1" Margin="0,0,2.5,0"/>
+                                <Rectangle Width="2" Height="18" Fill="#E6FFFFFF" RadiusX="1" RadiusY="1"/>
+                            </StackPanel>
                         </Border>
-                        <Border x:Name="HandleR" Width="12" Height="58" Background="{StaticResource AccentBg}"
-                                CornerRadius="0,4,4,0">
-                            <Rectangle Width="2.5" Height="20" Fill="White" RadiusX="1.25" RadiusY="1.25"/>
+                        <Border x:Name="HandleR" Width="14" Height="58" Background="{StaticResource AccentBg}"
+                                CornerRadius="0,5,5,0">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Rectangle Width="2" Height="18" Fill="#E6FFFFFF" RadiusX="1" RadiusY="1" Margin="0,0,2.5,0"/>
+                                <Rectangle Width="2" Height="18" Fill="#E6FFFFFF" RadiusX="1" RadiusY="1"/>
+                            </StackPanel>
                         </Border>
-                        <Rectangle x:Name="Playhead" Width="2" Height="58" Fill="#FFF2F3F5"/>
+                        <Rectangle x:Name="Playhead" Width="2" Height="58" Fill="#FFF2F3F5">
+                            <Rectangle.Effect>
+                                <DropShadowEffect BlurRadius="4" ShadowDepth="0" Opacity="0.6" Color="#FF000000"/>
+                            </Rectangle.Effect>
+                        </Rectangle>
                         <Ellipse x:Name="PlayheadKnob" Width="9" Height="9" Fill="#FFF2F3F5" Canvas.Top="-1"/>
+                        <Border x:Name="TimeBadge" Background="#F2101114" CornerRadius="5" Padding="7,3"
+                                BorderBrush="#33FFFFFF" BorderThickness="1" Visibility="Collapsed">
+                            <TextBlock x:Name="TimeBadgeText" Foreground="White" FontSize="11.5" FontFamily="Consolas"/>
+                        </Border>
                     </Canvas>
                 </Grid>
             </Border>

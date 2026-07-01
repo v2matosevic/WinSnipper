@@ -26,6 +26,17 @@ public partial class App : Application
             return;
         }
 
+        // Debug: dump filmstrip thumbnails as PNGs next to the video.
+        if (e.Args.Length >= 2 && e.Args[0] == "--thumbdump")
+        {
+            string src = string.Join(' ', e.Args.Skip(1)).Trim('"');
+            var (frames, _) = Recording.VideoThumbnails.Extract(src, 3, 720);
+            for (int i = 0; i < frames.Count; i++)
+                Util.SavePng(frames[i], src + $".thumb{i}.png");
+            Shutdown(0);
+            return;
+        }
+
         // Open the trim editor for an existing recording, no tray/hotkeys.
         // The path is everything after --trim, so unquoted paths with spaces work.
         if (e.Args.Length >= 2 && e.Args[0] == "--trim")
