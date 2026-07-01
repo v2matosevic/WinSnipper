@@ -164,6 +164,8 @@
                                TextTrimming="CharacterEllipsis"/>
                 </Border>
             </DockPanel>
+            <TextBlock Style="{StaticResource Hint}"
+                       Text="Screen recordings go to a Recordings subfolder inside this location."/>
 
             <!-- OCR (collapsed entirely in the lite build) -->
             <StackPanel x:Name="OcrSection">

@@ -8,6 +8,9 @@ public static class Util
 {
     public static string SnipsDir => Settings.Current.SaveDir;
 
+    /// <summary>Recordings live in their own subfolder of the save dir.</summary>
+    public static string RecordingsDir => Path.Combine(Settings.Current.SaveDir, "Recordings");
+
     /// <summary>"0.6.1" — assembly version without the trailing .0.</summary>
     public static string AppVersion
     {
@@ -89,6 +92,23 @@ public static class Util
         catch
         {
             // logging must never crash the crash handler
+        }
+    }
+
+    /// <summary>Puts a file on the clipboard (pasteable into Explorer, chats, uploads).</summary>
+    public static void TrySetClipboardFile(string path)
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            try
+            {
+                Clipboard.SetFileDropList(new System.Collections.Specialized.StringCollection { path });
+                return;
+            }
+            catch
+            {
+                Thread.Sleep(60);
+            }
         }
     }
 

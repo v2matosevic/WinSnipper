@@ -57,6 +57,7 @@
                     <MenuItem x:Name="EditMenuItem" Header="Edit" Click="Edit_Click"/>
                     <MenuItem x:Name="TrimMenuItem" Header="Trim…" Click="Edit_Click" Visibility="Collapsed"/>
                     <MenuItem x:Name="CopyMenuItem" Header="Copy image" Click="Copy_Click"/>
+                    <MenuItem x:Name="CopyFileMenuItem" Header="Copy video (paste as file)" Click="CopyFile_Click" Visibility="Collapsed"/>
                     <MenuItem x:Name="OcrMenuItem" Header="Copy text (OCR)" Click="CopyText_Click"/>
                     <MenuItem Header="Copy file path" Click="CopyPath_Click"/>
                     <MenuItem x:Name="SaveAsMenuItem" Header="Save as…" Click="SaveAs_Click"/>

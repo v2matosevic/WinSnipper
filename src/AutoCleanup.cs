@@ -31,7 +31,11 @@ public static class AutoCleanup
 
         var cutoff = DateTime.Now.AddDays(-days);
         var victims = new List<string>();
-        foreach (var file in Directory.EnumerateFiles(dir))
+        IEnumerable<string> candidates = Directory.EnumerateFiles(dir);
+        string recDir = Util.RecordingsDir;
+        if (Directory.Exists(recDir))
+            candidates = candidates.Concat(Directory.EnumerateFiles(recDir));
+        foreach (var file in candidates)
         {
             string name = Path.GetFileName(file);
             bool ours =

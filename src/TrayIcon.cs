@@ -32,6 +32,10 @@ public sealed class TrayIcon : IDisposable
         folderItem.Click += (_, _) => OpenSnipsFolder();
         menu.Items.Add(folderItem);
 
+        var recFolderItem = new ToolStripMenuItem("Open recordings folder");
+        recFolderItem.Click += (_, _) => OpenFolder(Util.RecordingsDir);
+        menu.Items.Add(recFolderItem);
+
         menu.Items.Add(new ToolStripSeparator());
 
         var settingsItem = new ToolStripMenuItem("Settings…");
@@ -84,10 +88,12 @@ public sealed class TrayIcon : IDisposable
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     }
 
-    private static void OpenSnipsFolder()
+    private static void OpenSnipsFolder() => OpenFolder(Util.SnipsDir);
+
+    private static void OpenFolder(string dir)
     {
-        System.IO.Directory.CreateDirectory(Util.SnipsDir);
-        Process.Start("explorer.exe", Util.SnipsDir);
+        System.IO.Directory.CreateDirectory(dir);
+        Process.Start("explorer.exe", dir);
     }
 
     /// <summary>Viewfinder glyph drawn at runtime so we ship no binary assets.</summary>

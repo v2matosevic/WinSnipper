@@ -1,4 +1,3 @@
-using System.Collections.Specialized;
 using System.IO;
 using System.Windows;
 
@@ -120,7 +119,7 @@ public sealed class RecordingManager
                 return; // nothing captured (or the recorder already reported the error)
 
             if (Settings.Current.CopyToClipboard)
-                TrySetClipboardFile(recorder.FilePath);
+                Util.TrySetClipboardFile(recorder.FilePath);
 
             new FloatingThumb(recorder.FilePath, lastFrame, isVideo: true).ShowStacked();
         }
@@ -131,29 +130,12 @@ public sealed class RecordingManager
         }
     }
 
-    /// <summary>Puts the MP4 on the clipboard as a file, pasteable into Explorer and chats.</summary>
-    private static void TrySetClipboardFile(string path)
-    {
-        for (int i = 0; i < 4; i++)
-        {
-            try
-            {
-                Clipboard.SetFileDropList(new StringCollection { path });
-                return;
-            }
-            catch
-            {
-                Thread.Sleep(60);
-            }
-        }
-    }
-
     private static string NextRecordingPath()
     {
         string baseName = $"Recording {DateTime.Now:yyyy-MM-dd HH-mm-ss}";
-        string path = Path.Combine(Util.SnipsDir, baseName + ".mp4");
+        string path = Path.Combine(Util.RecordingsDir, baseName + ".mp4");
         for (int i = 2; File.Exists(path); i++)
-            path = Path.Combine(Util.SnipsDir, $"{baseName} ({i}).mp4");
+            path = Path.Combine(Util.RecordingsDir, $"{baseName} ({i}).mp4");
         return path;
     }
 }

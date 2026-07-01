@@ -50,6 +50,7 @@ public partial class FloatingThumb : Window
             OcrMenuItem.Visibility = Visibility.Collapsed;
             SaveAsMenuItem.Visibility = Visibility.Collapsed;
             TrimMenuItem.Visibility = Visibility.Visible;
+            CopyFileMenuItem.Visibility = Visibility.Visible;
             OpenDefaultMenuItem.Header = "Open in default player";
             PlayBadge.Visibility = Visibility.Visible;
         }
@@ -213,6 +214,8 @@ public partial class FloatingThumb : Window
     private void Edit_Click(object sender, RoutedEventArgs e) => OpenEditor();
 
     private void Copy_Click(object sender, RoutedEventArgs e) => Util.TrySetClipboard(_img);
+
+    private void CopyFile_Click(object sender, RoutedEventArgs e) => Util.TrySetClipboardFile(_path);
 
     private async void CopyText_Click(object sender, RoutedEventArgs e)
     {

@@ -16,6 +16,9 @@
   video preview follows on a throttle
 - Version is now visible: tray tooltip and the Settings footer show it
 - `--trim` handles unquoted paths with spaces
+- Recordings save to a `Recordings` subfolder of the save location; the tray
+  menu gets "Open recordings folder", and a recording's thumbnail menu gets
+  "Copy video (paste as file)". Auto-delete covers the subfolder too
 
 ## 0.6.0 — 2026-07-01
 
