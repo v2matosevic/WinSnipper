@@ -8,6 +8,16 @@ public static class Util
 {
     public static string SnipsDir => Settings.Current.SaveDir;
 
+    /// <summary>"0.6.1" — assembly version without the trailing .0.</summary>
+    public static string AppVersion
+    {
+        get
+        {
+            var v = typeof(Util).Assembly.GetName().Version ?? new Version(0, 0, 0);
+            return $"{v.Major}.{v.Minor}.{v.Build}";
+        }
+    }
+
     public static string FormatHotkey(bool win, bool ctrl, bool alt, bool shift, uint vk)
     {
         var parts = new List<string>(5);

@@ -47,7 +47,7 @@ public sealed class TrayIcon : IDisposable
         _icon = new NotifyIcon
         {
             Icon = _glyph,
-            Text = $"WinSnipper — {Util.CurrentHotkeyDisplay} to snip",
+            Text = $"WinSnipper {Util.AppVersion} — {Util.CurrentHotkeyDisplay} to snip",
             Visible = true,
             ContextMenuStrip = menu,
         };
@@ -57,7 +57,7 @@ public sealed class TrayIcon : IDisposable
         {
             snipItem.ShortcutKeyDisplayString = Util.CurrentHotkeyDisplay;
             recordItem.ShortcutKeyDisplayString = Util.RecordHotkeyDisplay;
-            _icon.Text = $"WinSnipper — {Util.CurrentHotkeyDisplay} to snip";
+            _icon.Text = $"WinSnipper {Util.AppVersion} — {Util.CurrentHotkeyDisplay} to snip";
         };
     }
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.1 — 2026-07-02
+
+- **Recording over playing video no longer black** (OCR/full flavor) — capture
+  now uses Windows.Graphics.Capture, the only API that sees hardware-overlay
+  (MPO) video planes; browsers put playing video there and both GDI and DXGI
+  Desktop Duplication record it black on modern Windows 11 drivers. Capture
+  ladder: Windows.Graphics.Capture → Desktop Duplication → GDI (the lite
+  flavor starts at Desktop Duplication)
+- **Trim window rebuilt** — filmstrip timeline with draggable in/out handles
+  and a playhead, QuickTime-style: dimmed outside the selection, drag the blue
+  handles to trim, `[` / `]` set edges at the playhead, ←/→ step frames,
+  Space plays the selection, playback stops at the trim end so you preview
+  exactly what gets exported. Scrub visuals follow the mouse instantly; the
+  video preview follows on a throttle
+- Version is now visible: tray tooltip and the Settings footer show it
+- `--trim` handles unquoted paths with spaces
+
 ## 0.6.0 — 2026-07-01
 
 - **Screen recording** — Win+Shift+D (configurable) selects a region with the

@@ -106,7 +106,7 @@ public sealed class ScreenRecorder
         long firstTs = -1;
         long slot = 0;
 
-        DesktopDuplicator? dupe = null;
+        IRegionCapture? cap = null;
         Bitmap? clean = null;
         ICodecAPI? codec = null;
 
@@ -124,21 +124,15 @@ public sealed class ScreenRecorder
             using var bmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
             using var g = Graphics.FromImage(bmp);
 
-            // Desktop Duplication sees hardware-overlay video that GDI renders
-            // black; GDI remains the fallback (spanning regions, RDP, …).
-            try
+            cap = CreateBestCapture(_region);
+            if (cap is not null)
             {
-                dupe = new DesktopDuplicator(_region);
+                // Seed with one GDI grab so ticks before the first real frame
+                // (and fully static screens) still show the desktop.
                 clean = new Bitmap(w, h, PixelFormat.Format32bppRgb);
-                using (var cg = Graphics.FromImage(clean))
-                    cg.CopyFromScreen(_region.X, _region.Y, 0, 0,
-                        new System.Drawing.Size(w, h), CopyPixelOperation.SourceCopy);
-                Diag("capture: desktop duplication");
-            }
-            catch (Exception ex)
-            {
-                dupe = null;
-                Diag($"capture: GDI (duplication unavailable: {ex.Message})");
+                using var cg = Graphics.FromImage(clean);
+                cg.CopyFromScreen(_region.X, _region.Y, 0, 0,
+                    new System.Drawing.Size(w, h), CopyPixelOperation.SourceCopy);
             }
 
             _clock.Start();
@@ -154,19 +148,19 @@ public sealed class ScreenRecorder
                 if (firstTs < 0) firstTs = ts;
                 ts -= firstTs;
 
-                if (dupe is not null)
+                if (cap is not null)
                 {
                     try
                     {
-                        dupe.TryAccumulateInto(clean!); // false = unchanged, clean already holds the frame
+                        cap.TryAccumulateInto(clean!); // false = unchanged, clean already holds the frame
                         CopyBitmap(clean!, bmp);
                         if (_cursor) DrawCursor(g);
                     }
                     catch (Exception ex)
                     {
-                        Diag($"duplication lost, switching to GDI: {ex.Message}");
-                        dupe.Dispose();
-                        dupe = null;
+                        Diag($"capture backend lost, switching to GDI: {ex.Message}");
+                        cap.Dispose();
+                        cap = null;
                         CaptureFrame(g, bmp);
                     }
                 }
@@ -209,7 +203,7 @@ public sealed class ScreenRecorder
         finally
         {
             timeEndPeriod(1);
-            dupe?.Dispose();
+            cap?.Dispose();
             clean?.Dispose();
             Mf.Release(codec);
             Mf.Release(writer);
@@ -238,6 +232,38 @@ public sealed class ScreenRecorder
             System.IO.File.AppendAllText(path, $"[{DateTime.Now:HH:mm:ss.fff}] {message}{Environment.NewLine}");
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Capture ladder: Windows.Graphics.Capture (sees MPO overlay video; WinRT
+    /// flavor only) → DXGI Desktop Duplication → GDI BitBlt (null).
+    /// </summary>
+    private static IRegionCapture? CreateBestCapture(Int32Rect region)
+    {
+#if WINRT
+        try
+        {
+            var wgc = new WgcCapture(region);
+            Diag("capture: windows.graphics.capture");
+            return wgc;
+        }
+        catch (Exception ex)
+        {
+            Diag($"wgc unavailable: {ex.Message}");
+        }
+#endif
+        try
+        {
+            var dd = new DesktopDuplicator(region);
+            Diag("capture: desktop duplication");
+            return dd;
+        }
+        catch (Exception ex)
+        {
+            Diag($"dd unavailable: {ex.Message}");
+        }
+        Diag("capture: GDI");
+        return null;
     }
 
     private void CaptureFrame(Graphics g, Bitmap bmp)

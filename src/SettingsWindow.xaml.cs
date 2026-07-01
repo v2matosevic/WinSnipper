@@ -36,6 +36,7 @@ public partial class SettingsWindow : Window
         AutoDeleteCheck.Checked += (_, _) => AutoDeleteCombo.IsEnabled = true;
         AutoDeleteCheck.Unchecked += (_, _) => AutoDeleteCombo.IsEnabled = false;
 
+        VersionText.Text = $"WinSnipper {Util.AppVersion}{(Util.OcrSupported ? " (OCR)" : "")}";
         RefreshOcrStatus();
 
         Closed += (_, _) => StopCapture();

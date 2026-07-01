@@ -6,13 +6,23 @@ using System.Windows;
 namespace WinSnipper.Recording;
 
 /// <summary>
+/// A capture backend that fills a bitmap with the region's newest frame.
+/// Returns false when nothing changed (bitmap untouched); throws when the
+/// backend is irrecoverably lost — callers step down the capture ladder.
+/// </summary>
+internal interface IRegionCapture : IDisposable
+{
+    bool TryAccumulateInto(System.Drawing.Bitmap bmp);
+}
+
+/// <summary>
 /// Captures a screen region via DXGI Desktop Duplication. Unlike GDI BitBlt,
 /// this sees the final composed desktop — including hardware-overlay video
 /// (browsers put playing video on MPO planes, which BitBlt renders black).
 /// Throws from the constructor when duplication isn't possible (region spans
 /// monitors, rotated display, RDP, unsupported GPU) — callers fall back to GDI.
 /// </summary>
-internal sealed class DesktopDuplicator : IDisposable
+internal sealed class DesktopDuplicator : IRegionCapture
 {
     private const int DXGI_ERROR_WAIT_TIMEOUT = unchecked((int)0x887A0027);
     private const int DXGI_ERROR_ACCESS_LOST = unchecked((int)0x887A0026);

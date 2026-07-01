@@ -9,10 +9,12 @@
     <EnableOcr Condition="'$(EnableOcr)' == ''">false</EnableOcr>
   </PropertyGroup>
 
+  <!-- 22621 SDK projection adds Windows.Graphics.Capture border control; the
+       app still runs on 19041+ (newer APIs are guarded with try/catch). -->
   <PropertyGroup Condition="'$(EnableOcr)' == 'true'">
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
-    <DefineConstants>$(DefineConstants);OCR</DefineConstants>
+    <DefineConstants>$(DefineConstants);OCR;WINRT</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="'$(EnableOcr)' != 'true'">
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -28,7 +30,7 @@
     <AssemblyName>WinSnipper</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
-    <Version>0.6.0</Version>
+    <Version>0.6.1</Version>
     <Authors>Marko Matošević</Authors>
     <Company>Version2</Company>
     <Description>Ultra-lightweight Win+Shift+S replacement: snip, floating thumbnail, annotate, OCR, paste.</Description>

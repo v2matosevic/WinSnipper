@@ -6,8 +6,8 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
-        Width="860" Height="620"
-        MinWidth="560" MinHeight="420"
+        Width="880" Height="640"
+        MinWidth="600" MinHeight="440"
         FontFamily="Segoe UI Variable Text, Segoe UI"
         TextOptions.TextFormattingMode="Display"
         ShowInTaskbar="True">
@@ -108,43 +108,55 @@
                     HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"/>
         </Grid>
 
-        <!-- footer: trim controls -->
-        <StackPanel DockPanel.Dock="Bottom" Margin="20,0,20,16">
-            <!-- timeline -->
-            <Grid Height="34" Margin="0,10,0,0">
-                <Border Height="6" VerticalAlignment="Center" Background="{StaticResource GroupBg}" CornerRadius="3"/>
-                <Canvas x:Name="RangeCanvas" VerticalAlignment="Stretch" ClipToBounds="False"
-                        SizeChanged="RangeCanvas_SizeChanged">
-                    <Border x:Name="RangeFill" Height="6" Canvas.Top="14" Background="#803478F6" CornerRadius="3"/>
-                    <Rectangle x:Name="StartMarker" Width="3" Height="20" Canvas.Top="7" Fill="#FF53A7FF" RadiusX="1.5" RadiusY="1.5"/>
-                    <Rectangle x:Name="EndMarker" Width="3" Height="20" Canvas.Top="7" Fill="#FF53A7FF" RadiusX="1.5" RadiusY="1.5"/>
-                </Canvas>
-                <Slider x:Name="Seek" VerticalAlignment="Center" Minimum="0" Maximum="1"
-                        IsMoveToPointEnabled="True"
-                        Thumb.DragStarted="Seek_DragStarted" Thumb.DragCompleted="Seek_DragCompleted"
-                        ValueChanged="Seek_ValueChanged"/>
-            </Grid>
+        <!-- footer: filmstrip timeline + controls -->
+        <StackPanel DockPanel.Dock="Bottom" Margin="20,0,20,14">
+            <!-- timeline: filmstrip, dimmed outside the selection, draggable
+                 in/out handles, playhead -->
+            <Border x:Name="TimelineHost" Height="58" Margin="0,12,0,0" CornerRadius="7"
+                    Background="#FF17181C" ClipToBounds="True" Cursor="Arrow"
+                    MouseLeftButtonDown="Timeline_MouseDown"
+                    MouseMove="Timeline_MouseMove"
+                    MouseLeftButtonUp="Timeline_MouseUp"
+                    SizeChanged="Timeline_SizeChanged">
+                <Grid>
+                    <UniformGrid x:Name="FilmStrip" Rows="1" IsHitTestVisible="False"/>
+                    <Canvas x:Name="TL" IsHitTestVisible="False">
+                        <Rectangle x:Name="DimL" Fill="#B3121317" Height="58"/>
+                        <Rectangle x:Name="DimR" Fill="#B3121317" Height="58"/>
+                        <Border x:Name="SelFrame" BorderBrush="{StaticResource AccentBg}"
+                                BorderThickness="2" CornerRadius="4" Height="58"/>
+                        <Border x:Name="HandleL" Width="12" Height="58" Background="{StaticResource AccentBg}"
+                                CornerRadius="4,0,0,4">
+                            <Rectangle Width="2.5" Height="20" Fill="White" RadiusX="1.25" RadiusY="1.25"/>
+                        </Border>
+                        <Border x:Name="HandleR" Width="12" Height="58" Background="{StaticResource AccentBg}"
+                                CornerRadius="0,4,4,0">
+                            <Rectangle Width="2.5" Height="20" Fill="White" RadiusX="1.25" RadiusY="1.25"/>
+                        </Border>
+                        <Rectangle x:Name="Playhead" Width="2" Height="58" Fill="#FFF2F3F5"/>
+                        <Ellipse x:Name="PlayheadKnob" Width="9" Height="9" Fill="#FFF2F3F5" Canvas.Top="-1"/>
+                    </Canvas>
+                </Grid>
+            </Border>
 
-            <!-- transport + trim buttons -->
-            <Grid Margin="0,10,0,0">
+            <!-- transport + save -->
+            <Grid Margin="0,12,0,0">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                    <Button x:Name="PlayBtn" Style="{StaticResource FlatBtn}" Content="▶" Width="44" Click="Play_Click"/>
+                    <Button x:Name="PlayBtn" Style="{StaticResource FlatBtn}" Content="▶" Width="46" Click="Play_Click"/>
                     <TextBlock x:Name="TimeLabel" Foreground="{StaticResource TextDim}" FontSize="12.5"
                                FontFamily="Consolas" VerticalAlignment="Center" Margin="12,0,0,0" Text="0:00 / 0:00"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <Button Style="{StaticResource FlatBtn}" Content="⇤ Set start" Click="SetStart_Click"
-                            ToolTip="Trim start = current position"/>
-                    <TextBlock x:Name="RangeLabel" Foreground="{StaticResource TextDim}" FontSize="12.5"
-                               FontFamily="Consolas" VerticalAlignment="Center" Margin="10,0" Text=""/>
-                    <Button Style="{StaticResource FlatBtn}" Content="Set end ⇥" Click="SetEnd_Click"
-                            ToolTip="Trim end = current position"/>
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock x:Name="RangeLabel" Foreground="{StaticResource TextFg}" FontSize="12.5"
+                               FontFamily="Consolas" HorizontalAlignment="Center" Text=""/>
+                    <TextBlock Foreground="#FF6E747D" FontSize="11" HorizontalAlignment="Center" Margin="0,2,0,0"
+                               Text="Drag the blue handles to trim · Space plays · [ and ] set edges at the playhead"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <CheckBox x:Name="ReplaceCheck" Content="Replace original" Foreground="{StaticResource TextDim}"
                               FontSize="12.5" VerticalAlignment="Center" Margin="0,0,12,0"/>
                     <Button x:Name="SaveBtn" Style="{StaticResource AccentBtn}" Content="Save trimmed"
-                            MinWidth="120" Click="SaveTrim_Click"/>
+                            MinWidth="122" Click="SaveTrim_Click"/>
                 </StackPanel>
             </Grid>
 
@@ -154,7 +166,8 @@
         </StackPanel>
 
         <!-- player -->
-        <Border Margin="20,16,20,0" Background="Black" CornerRadius="8" ClipToBounds="True">
+        <Border Margin="20,16,20,0" Background="Black" CornerRadius="8" ClipToBounds="True"
+                BorderBrush="#22FFFFFF" BorderThickness="1">
             <MediaElement x:Name="Player"
                           LoadedBehavior="Manual" UnloadedBehavior="Manual"
                           ScrubbingEnabled="True" Stretch="Uniform"

@@ -2,31 +2,40 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using WinSnipper.Recording;
 
 namespace WinSnipper;
 
 /// <summary>
-/// Playback + trim UI for a recording. Scrub to a point, "Set start" /
-/// "Set end", then save either a "(trimmed)" copy or replace the original.
+/// Player + trim UI: a filmstrip timeline with draggable in/out handles and a
+/// playhead (QuickTime-style). Handle/playhead drags never seek per pixel —
+/// visuals follow the mouse instantly, the video preview follows on a
+/// throttle, so scrubbing stays smooth.
 /// </summary>
 public partial class TrimWindow : Window
 {
+    private const int ThumbCount = 14;
+    private const double GrabPx = 12; // hit slop around handles/playhead
+
+    private enum DragTarget { None, Start, End, Playhead }
+
     private readonly string _path;
     private readonly DispatcherTimer _tick;
     private TimeSpan _duration = TimeSpan.Zero;
     private TimeSpan _trimStart = TimeSpan.Zero;
     private TimeSpan _trimEnd = TimeSpan.Zero;
+    private TimeSpan _playhead = TimeSpan.Zero;
     private bool _playing;
-    private bool _scrubbing;
-    private bool _wasPlayingBeforeScrub;
-    private bool _updatingSeek;
     private bool _busy;
 
+    private DragTarget _drag = DragTarget.None;
+    private bool _wasPlayingBeforeDrag;
+
     // Seeks are throttled: MediaElement decodes from the previous keyframe on
-    // every Position set, so seeking per slider pixel makes scrubbing choppy.
+    // every Position set, so seeking per mouse pixel is what made this choppy.
     private TimeSpan? _pendingSeek;
     private DateTime _lastSeek = DateTime.MinValue;
 
@@ -36,15 +45,15 @@ public partial class TrimWindow : Window
         _path = path;
         TitleText.Text = $"Trim — {Path.GetFileName(path)}";
 
-        _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
-        _tick.Tick += (_, _) => SyncFromPlayer();
+        _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        _tick.Tick += (_, _) => OnTick();
 
         Loaded += (_, _) =>
         {
             Player.Source = new Uri(_path);
-            // Play/pause once so the first frame renders.
             Player.Play();
             Player.Pause();
+            _ = LoadFilmstripAsync();
         };
         Closed += (_, _) =>
         {
@@ -53,13 +62,34 @@ public partial class TrimWindow : Window
         };
     }
 
-    protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
-        if (e.Key == System.Windows.Input.Key.Space)
+        switch (e.Key)
         {
-            e.Handled = true;
-            TogglePlay();
+            case Key.Space:
+                e.Handled = true;
+                TogglePlay();
+                break;
+            case Key.OemOpenBrackets: // [ — trim start = playhead
+                _trimStart = _playhead;
+                if (_trimEnd <= _trimStart) _trimEnd = _duration;
+                UpdateTimeline();
+                break;
+            case Key.OemCloseBrackets: // ] — trim end = playhead
+                _trimEnd = _playhead;
+                if (_trimStart >= _trimEnd) _trimStart = TimeSpan.Zero;
+                UpdateTimeline();
+                break;
+            case Key.Left or Key.Right:
+                e.Handled = true;
+                double step = (e.Key == Key.Left ? -1 : 1) *
+                    (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 1000 : 33);
+                SeekTo(Clamp(_playhead + TimeSpan.FromMilliseconds(step)), force: true);
+                break;
+            case Key.Escape:
+                if (!_busy) Close();
+                break;
         }
     }
 
@@ -73,24 +103,42 @@ public partial class TrimWindow : Window
         _ = DwmSetWindowAttribute(hwnd, 33, ref round, sizeof(int));
     }
 
+    // ---------- filmstrip ----------
+
+    private async Task LoadFilmstripAsync()
+    {
+        try
+        {
+            var (frames, _) = await Task.Run(() => VideoThumbnails.Extract(_path, ThumbCount, 64));
+            foreach (var f in frames)
+            {
+                FilmStrip.Children.Add(new Image
+                {
+                    Source = f,
+                    Stretch = System.Windows.Media.Stretch.UniformToFill,
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Util.LogCrash("Filmstrip", ex); // strip stays dark; trimming still works
+        }
+    }
+
     // ---------- playback ----------
 
     private void Player_MediaOpened(object sender, RoutedEventArgs e)
     {
         _duration = Player.NaturalDuration.HasTimeSpan ? Player.NaturalDuration.TimeSpan : TimeSpan.Zero;
         _trimEnd = _duration;
-        Seek.Maximum = Math.Max(1, _duration.TotalMilliseconds);
         _tick.Start();
-        UpdateLabels();
-        UpdateRangeVisuals();
+        UpdateTimeline();
     }
 
     private void Player_MediaEnded(object sender, RoutedEventArgs e)
     {
-        _playing = false;
-        PlayBtn.Content = "▶";
-        Player.Pause();
-        Player.Position = TimeSpan.Zero;
+        SetPlaying(false);
+        SeekTo(_trimStart, force: true);
     }
 
     private void Player_MediaFailed(object sender, ExceptionRoutedEventArgs e)
@@ -105,107 +153,173 @@ public partial class TrimWindow : Window
     private void TogglePlay()
     {
         if (_busy) return;
-        _playing = !_playing;
-        PlayBtn.Content = _playing ? "⏸" : "▶";
-        if (_playing) Player.Play();
+        if (!_playing && (_playhead < _trimStart || _playhead >= _trimEnd))
+            SeekTo(_trimStart, force: true); // play previews the selection
+        SetPlaying(!_playing);
+    }
+
+    private void SetPlaying(bool playing)
+    {
+        _playing = playing;
+        PlayBtn.Content = playing ? "⏸" : "▶";
+        if (playing) Player.Play();
         else Player.Pause();
     }
 
-    private void SyncFromPlayer()
+    private void OnTick()
     {
-        if (_scrubbing)
+        if (_drag == DragTarget.None)
         {
             ApplyPendingSeek(force: true); // catch up between throttled applies
-            return;
+            if (_pendingSeek is null)
+                _playhead = Player.Position;
         }
-        if (_pendingSeek is not null)
+        else
         {
             ApplyPendingSeek(force: true);
-            return;
         }
-        _updatingSeek = true;
-        Seek.Value = Player.Position.TotalMilliseconds;
-        _updatingSeek = false;
-        UpdateLabels();
+
+        // Playing past the trim end previews exactly what the export keeps.
+        if (_playing && _trimEnd > TimeSpan.Zero && _playhead >= _trimEnd)
+        {
+            SetPlaying(false);
+            SeekTo(_trimEnd, force: true);
+        }
+        UpdateTimeline();
     }
 
-    private void Seek_DragStarted(object sender, DragStartedEventArgs e)
+    private void SeekTo(TimeSpan t, bool force = false)
     {
-        _scrubbing = true;
-        _wasPlayingBeforeScrub = _playing;
-        if (_playing) TogglePlay(); // seeking a playing MediaElement stutters badly
-    }
-
-    private void Seek_DragCompleted(object sender, DragCompletedEventArgs e)
-    {
-        _scrubbing = false;
-        _pendingSeek = TimeSpan.FromMilliseconds(Seek.Value);
-        ApplyPendingSeek(force: true);
-        if (_wasPlayingBeforeScrub) TogglePlay();
-    }
-
-    private void Seek_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_updatingSeek) return;
-        _pendingSeek = TimeSpan.FromMilliseconds(e.NewValue);
-        UpdateLabels();      // label follows the thumb immediately …
-        ApplyPendingSeek();  // … the actual decode is rate-limited
+        _playhead = Clamp(t);
+        _pendingSeek = _playhead;
+        ApplyPendingSeek(force);
     }
 
     private void ApplyPendingSeek(bool force = false)
     {
         if (_pendingSeek is not { } target) return;
-        if (!force && (DateTime.UtcNow - _lastSeek).TotalMilliseconds < 70) return;
+        if (!force && (DateTime.UtcNow - _lastSeek).TotalMilliseconds < 90) return;
         _pendingSeek = null;
         _lastSeek = DateTime.UtcNow;
         Player.Position = target;
     }
 
-    // ---------- trim range ----------
+    private TimeSpan Clamp(TimeSpan t) =>
+        t < TimeSpan.Zero ? TimeSpan.Zero : t > _duration ? _duration : t;
 
-    /// <summary>Where the user currently is: the scrub target if one is in flight.</summary>
-    private TimeSpan CurrentPosition => _pendingSeek ?? Player.Position;
+    // ---------- timeline interaction ----------
 
-    private void SetStart_Click(object sender, RoutedEventArgs e)
+    private double TimelineWidth => TimelineHost.ActualWidth;
+
+    private double XOf(TimeSpan t) =>
+        _duration > TimeSpan.Zero ? TimelineWidth * t.Ticks / _duration.Ticks : 0;
+
+    private TimeSpan TimeAt(double x) =>
+        _duration > TimeSpan.Zero && TimelineWidth > 0
+            ? new TimeSpan((long)(_duration.Ticks * Math.Clamp(x / TimelineWidth, 0, 1)))
+            : TimeSpan.Zero;
+
+    private void Timeline_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        _trimStart = CurrentPosition;
-        if (_trimEnd <= _trimStart) _trimEnd = _duration;
-        UpdateLabels();
-        UpdateRangeVisuals();
+        if (_busy || _duration <= TimeSpan.Zero) return;
+        double x = e.GetPosition(TimelineHost).X;
+        double xL = XOf(_trimStart), xR = XOf(_trimEnd);
+
+        _drag = Math.Abs(x - xL) <= GrabPx && Math.Abs(x - xL) <= Math.Abs(x - xR) ? DragTarget.Start
+              : Math.Abs(x - xR) <= GrabPx ? DragTarget.End
+              : DragTarget.Playhead;
+
+        _wasPlayingBeforeDrag = _playing;
+        if (_playing) SetPlaying(false); // scrub paused, resume on release
+        TimelineHost.CaptureMouse();
+        Timeline_MouseMove(sender, e);
     }
 
-    private void SetEnd_Click(object sender, RoutedEventArgs e)
+    private void Timeline_MouseMove(object sender, MouseEventArgs e)
     {
-        _trimEnd = CurrentPosition;
-        if (_trimStart >= _trimEnd) _trimStart = TimeSpan.Zero;
-        UpdateLabels();
-        UpdateRangeVisuals();
+        if (_busy) return;
+        double x = e.GetPosition(TimelineHost).X;
+
+        if (_drag == DragTarget.None)
+        {
+            // Cursor affordance when hovering a handle.
+            double xL = XOf(_trimStart), xR = XOf(_trimEnd);
+            TimelineHost.Cursor = Math.Abs(x - xL) <= GrabPx || Math.Abs(x - xR) <= GrabPx
+                ? Cursors.SizeWE
+                : Cursors.Arrow;
+            return;
+        }
+
+        var t = TimeAt(x);
+        switch (_drag)
+        {
+            case DragTarget.Start:
+                _trimStart = t < _trimEnd ? t : _trimEnd;
+                _playhead = _trimStart;
+                break;
+            case DragTarget.End:
+                _trimEnd = t > _trimStart ? t : _trimStart;
+                _playhead = _trimEnd;
+                break;
+            case DragTarget.Playhead:
+                _playhead = t;
+                break;
+        }
+        _pendingSeek = _playhead;
+        ApplyPendingSeek(); // visuals are instant, the decode is rate-limited
+        UpdateTimeline();
     }
 
-    private void UpdateLabels()
+    private void Timeline_MouseUp(object sender, MouseButtonEventArgs e)
     {
-        TimeLabel.Text = $"{Fmt(CurrentPosition)} / {Fmt(_duration)}";
-        RangeLabel.Text = $"{Fmt(_trimStart)} → {Fmt(_trimEnd)}";
-        bool trimmed = _trimStart > TimeSpan.Zero || (_duration > TimeSpan.Zero && _trimEnd < _duration);
-        SaveBtn.IsEnabled = !_busy && _duration > TimeSpan.Zero && _trimEnd > _trimStart && trimmed;
+        if (_drag == DragTarget.None) return;
+        bool resumePlaying = _wasPlayingBeforeDrag && _drag == DragTarget.Playhead;
+        _drag = DragTarget.None;
+        TimelineHost.ReleaseMouseCapture();
+        ApplyPendingSeek(force: true);
+        if (resumePlaying) SetPlaying(true);
+    }
+
+    private void Timeline_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateTimeline();
+
+    private void UpdateTimeline()
+    {
+        double w = TimelineWidth;
+        double h = TimelineHost.ActualHeight;
+        if (w <= 0 || _duration <= TimeSpan.Zero) return;
+
+        double xL = XOf(_trimStart), xR = XOf(_trimEnd), xP = XOf(_playhead);
+
+        DimL.Height = h;
+        DimR.Height = h;
+        Canvas.SetLeft(DimL, 0);
+        DimL.Width = Math.Max(0, xL);
+        Canvas.SetLeft(DimR, xR);
+        DimR.Width = Math.Max(0, w - xR);
+
+        SelFrame.Height = h;
+        Canvas.SetLeft(SelFrame, xL);
+        SelFrame.Width = Math.Max(0, xR - xL);
+
+        HandleL.Height = h;
+        HandleR.Height = h;
+        Canvas.SetLeft(HandleL, Math.Max(0, xL - HandleL.Width + 2));
+        Canvas.SetLeft(HandleR, Math.Min(w - 2, xR - 2));
+
+        Playhead.Height = h;
+        Canvas.SetLeft(Playhead, xP - 1);
+        Canvas.SetLeft(PlayheadKnob, xP - PlayheadKnob.Width / 2);
+
+        TimeLabel.Text = $"{Fmt(_playhead)} / {Fmt(_duration)}";
+        var selected = _trimEnd - _trimStart;
+        RangeLabel.Text = $"{Fmt(_trimStart)} — {Fmt(_trimEnd)}   ·   {selected.TotalSeconds:0.0}s selected";
+
+        bool trimmed = _trimStart > TimeSpan.Zero || _trimEnd < _duration;
+        SaveBtn.IsEnabled = !_busy && _trimEnd > _trimStart && trimmed;
     }
 
     private static string Fmt(TimeSpan t) =>
         t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss\.f");
-
-    private void RangeCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateRangeVisuals();
-
-    private void UpdateRangeVisuals()
-    {
-        double w = RangeCanvas.ActualWidth;
-        if (w <= 0 || _duration <= TimeSpan.Zero) return;
-        double x1 = w * (_trimStart.TotalMilliseconds / _duration.TotalMilliseconds);
-        double x2 = w * (_trimEnd.TotalMilliseconds / _duration.TotalMilliseconds);
-        Canvas.SetLeft(RangeFill, x1);
-        RangeFill.Width = Math.Max(0, x2 - x1);
-        Canvas.SetLeft(StartMarker, x1 - 1.5);
-        Canvas.SetLeft(EndMarker, x2 - 1.5);
-    }
 
     // ---------- save ----------
 
@@ -216,7 +330,7 @@ public partial class TrimWindow : Window
         bool replace = ReplaceCheck.IsChecked == true;
         SaveBtn.IsEnabled = false;
         TrimProgress.Visibility = Visibility.Visible;
-        if (_playing) TogglePlay();
+        if (_playing) SetPlaying(false);
 
         string finalPath = replace
             ? _path
@@ -261,7 +375,7 @@ public partial class TrimWindow : Window
         {
             _busy = false;
             TrimProgress.Visibility = Visibility.Collapsed;
-            UpdateLabels();
+            UpdateTimeline();
         }
     }
 

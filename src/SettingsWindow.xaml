@@ -200,10 +200,14 @@
                        Text="Old snips and recordings are moved to the Recycle Bin, never permanently deleted. Only files WinSnipper created are touched."/>
 
             <!-- footer -->
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
-                <Button Style="{StaticResource FlatBtn}" Content="Cancel" Click="Cancel_Click" MinWidth="84"/>
-                <Button Style="{StaticResource AccentBtn}" Content="Save" Click="Save_Click" MinWidth="84" Margin="8,0,0,0"/>
-            </StackPanel>
+            <Grid Margin="0,24,0,0">
+                <TextBlock x:Name="VersionText" Foreground="#FF6E747D" FontSize="11.5"
+                           VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Style="{StaticResource FlatBtn}" Content="Cancel" Click="Cancel_Click" MinWidth="84"/>
+                    <Button Style="{StaticResource AccentBtn}" Content="Save" Click="Save_Click" MinWidth="84" Margin="8,0,0,0"/>
+                </StackPanel>
+            </Grid>
         </StackPanel>
     </DockPanel>
 </Window>

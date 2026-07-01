@@ -27,10 +27,15 @@ public partial class App : Application
         }
 
         // Open the trim editor for an existing recording, no tray/hotkeys.
-        if (e.Args.Length == 2 && e.Args[0] == "--trim" && File.Exists(e.Args[1]))
+        // The path is everything after --trim, so unquoted paths with spaces work.
+        if (e.Args.Length >= 2 && e.Args[0] == "--trim")
         {
-            new TrimWindow(e.Args[1]).Show();
-            return;
+            string trimPath = string.Join(' ', e.Args.Skip(1)).Trim('"');
+            if (File.Exists(trimPath))
+            {
+                new TrimWindow(trimPath).Show();
+                return;
+            }
         }
 
         _mutex = new Mutex(true, "WinSnipper_SingleInstance", out bool isNew);
