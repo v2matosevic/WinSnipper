@@ -1,30 +1,52 @@
 # Architecture
 
-One WPF process, one project, no external packages. The flow is a straight
-pipeline; each component owns one stage.
+One WPF process, one project, no external packages. Two flows share the same
+front half; each component owns one stage.
 
 ```
-KeyboardHook ──► SnipManager ──► SnipOverlay ──► FloatingThumb ──► EditorWindow
- (hotkey)        (orchestrates)   (region select)  (pinned thumb)    (annotate)
-                      │
-                      └─► save PNG + clipboard
+                 ┌─► SnipManager ────► SnipOverlay ─► FloatingThumb ─► EditorWindow
+                 │    (screenshot)      (pick region/    (pinned         (annotate)
+KeyboardHook ────┤                       window/screen)   thumb)
+ (two hotkeys)   │
+                 └─► RecordingManager ► SnipOverlay ─► ScreenRecorder ─► FloatingThumb ─► TrimWindow
+                      (recording)       (live mode)     (capture+encode    (video thumb)   (filmstrip trim)
+                                                         + RecordingHud)
 ```
 
 ## Components (`src/`)
 
 | File | Responsibility |
 |---|---|
-| `KeyboardHook.cs` | `WH_KEYBOARD_LL` hook. Sees the configured combo before the OS hotkey (that's how Win+Shift+S can be overridden), swallows it, sends a dummy key so the Start menu doesn't open on Win-up. Also exposes `CaptureInterceptor` so the settings window can record a new hotkey — including Win-combos. |
+| `KeyboardHook.cs` | `WH_KEYBOARD_LL` hook. Sees the configured combos (snip + record) before the OS hotkey (that's how Win+Shift+S can be overridden), swallows them, sends a dummy key so the Start menu doesn't open on Win-up. Also exposes `CaptureInterceptor` so the settings window can record a new hotkey — including Win-combos. |
 | `ScreenCapture.cs` | GDI BitBlt of the whole virtual screen (all monitors) into a frozen `BitmapSource`, in physical pixels. |
 | `SnipManager.cs` | One snip end-to-end: hide thumbs → capture → overlay → crop → save + clipboard → spawn thumbnail. |
-| `SnipOverlay.xaml` | Fullscreen frozen-frame selection UI. All selection math in physical pixels via `GetCursorPos`, so crops are pixel-exact at any DPI scale. |
+| `SnipOverlay.xaml` | Fullscreen selection UI with three pick modes: drag a **region**, click a **window** (`EnumWindows` + DWM frame bounds, cloaked windows filtered), click a **screen**. Frozen-screenshot mode for snips, live transparent mode for recordings (the desktop keeps moving). All selection math in physical pixels via `GetCursorPos`, so results are pixel-exact at any DPI scale. |
 | `FloatingThumb.xaml` | Bottom-right pinned thumbnail. Click = open editor (and self-dismiss), drag = `DoDragDrop` FileDrop, auto-fades after the configured timeout, hover pauses. |
 | `EditorWindow.xaml` | Frameless annotation editor. The `Surface` grid is kept at 1 DIP == 1 px, so a 96-DPI `RenderTargetBitmap` of it (`Composite()`) is a pixel-exact output. Every tool adds an element to the `Ink` canvas and the shared undo stack; crop and pixelate bake from the live composite. |
-| `SettingsWindow.xaml` | Hotkey recorder + preferences. |
+| `SettingsWindow.xaml` | Hotkey recorder (both hotkeys) + preferences. |
 | `Settings.cs` | JSON persistence (`%APPDATA%\WinSnipper\settings.json`), `Settings.Current` + `Changed` event. |
 | `TrayIcon.cs` | WinForms `NotifyIcon`, menu, runtime-drawn fallback glyph. |
 | `StartupManager.cs` | HKCU `Run` key toggle. |
-| `Util.cs` | PNG save, clipboard retry wrappers, OCR (`Windows.Media.Ocr`, upscaled input, language fallback chain). |
+| `Util.cs` | PNG save, clipboard retry wrappers (image / file / text), OCR (`Windows.Media.Ocr`, upscaled input, language fallback chain). |
+| `AutoCleanup.cs` | Opt-in: recycles `Snip *.png` / `Recording *.mp4` older than N days (save dir + `Recordings\`), via `SHFileOperation` `FOF_ALLOWUNDO` — Recycle Bin, never a hard delete. |
+| `RecordingHud.xaml` | Recording control pill (elapsed / pause / stop) + four border strips around the region. Everything is `WDA_EXCLUDEFROMCAPTURE`d and placed strictly **outside** the recorded pixels — GDI-style capture renders excluded windows as black, so nothing excluded may ever overlap the region. |
+| `TrimWindow.xaml` | Filmstrip trim editor: draggable in/out handles, playhead, time bubble, selection-bounded playback. Drags never seek per pixel — visuals are instant, the `MediaElement` preview follows on a ~90 ms throttle. |
+
+## Recording pipeline (`src/Recording/`)
+
+| File | Responsibility |
+|---|---|
+| `RecordingManager.cs` | One recording end-to-end: live overlay → even-sized region → `ScreenRecorder` + HUD → stop → clipboard file + video thumbnail. The hotkey toggles start/stop. 3 h runaway guard. |
+| `ScreenRecorder.cs` | Capture thread + MF sink writer. Emits strict **constant frame rate** — the H.264 encoder MFT re-stamps timestamps at the declared fps, so the sample *count* is the timeline; late frames are filled with duplicates of the newest capture (encode to ~nothing). Forces a keyframe every second (`AVEncVideoForceKeyFrame`) because some hardware encoders accept `AVEncMPVGOPSize` and ignore it; falls back to the software encoder if hardware refuses. `timeBeginPeriod(1)` while recording (default 15.6 ms sleep quantum caps GDI loops near 20 fps). Diagnostics per session → `%APPDATA%\WinSnipper\recorder.log`. |
+| `WgcCapture.cs` | Windows.Graphics.Capture backend (`WINRT` flavor only). The only API that captures hardware-overlay (MPO) planes — where browsers put playing video; BitBlt **and** Desktop Duplication render those black on modern Win11 drivers. Monitor item via `IGraphicsCaptureItemInterop`, free-threaded frame pool polled from the capture thread, cursor drawn manually. |
+| `DesktopDuplication.cs` | DXGI Desktop Duplication backend + the shared `IRegionCapture` interface. Hand-rolled D3D11/DXGI vtables — placeholder methods are named `ReservedN`, **never** `_VtblGap*` (the runtime parses that prefix as a multi-slot gap directive and the vtable shifts). |
+| `MediaFoundation.cs` | Minimal MF COM interop: sink writer, source reader, samples/buffers, `ICodecAPI`. Vtable order is load-bearing. All GUIDs verified against the Windows SDK headers — several online snippets circulate wrong ones. |
+| `VideoTrimmer.cs` | Frame-accurate trim: source reader decodes to RGB32, sink writer re-encodes `[start, end]`. Re-encoding (not compressed-copy) keeps cuts exact regardless of GOP. |
+| `VideoThumbnails.cs` | Filmstrip frames via source reader. Handles the coded-frame pitch trap: decoders may hand back the macroblock-aligned frame (e.g. 1136×640 for 1124×628) as a 1-D buffer while the type claims display stride — real pitch is derived from buffer length / coded height when `IMF2DBuffer` is absent. |
+
+Capture ladder at runtime: **WGC → Desktop Duplication → GDI**, chosen per
+recording, falling down a rung on any failure (spanning regions, rotated
+displays, RDP, device loss mid-recording).
 
 ## Decisions worth knowing
 
@@ -36,8 +58,22 @@ KeyboardHook ──► SnipManager ──► SnipOverlay ──► FloatingThumb
   scaled visually, so output never depends on display scaling.
 - **No dialogs**: closing the editor saves silently and refreshes the
   clipboard. This is a product decision, not an oversight.
-- **OCR & the TFM**: `net8.0-windows10.0.19041.0` pulls the Windows SDK
-  projection (~24 MB in the single-file exe) purely for `Windows.Media.Ocr`.
-  Dropping OCR and reverting the TFM gets a ~200 KB exe back.
+- **OCR/WinRT & the TFM**: `net8.0-windows10.0.22621.0` (OCR flavor) pulls the
+  Windows SDK projection (~24 MB in the single-file exe) for
+  `Windows.Media.Ocr` and `Windows.Graphics.Capture`; 22621 specifically for
+  `IsBorderRequired`. `SupportedOSPlatformVersion` stays 10.0.19041 — newer
+  APIs are try/caught. The lite flavor stays on plain `net8.0-windows` and
+  records via Desktop Duplication instead of WGC.
 - **WinRT + STA**: never block on WinRT async from the UI thread
   (`.GetResult()` deadlocks). Await it.
+- **Excluded windows are BLACK, not invisible, to GDI-style capture**: any
+  `WDA_EXCLUDEFROMCAPTURE` window overlapping the recorded region blacks it
+  out. That's why the recording border is four strips *outside* the region
+  and the HUD hides itself when a full-screen recording leaves it no room.
+- **Video timing**: the MP4 timeline comes from sample count × frame
+  duration, not from the timestamps you write — the encoder MFT re-stamps
+  them. CFR with duplicate-fill is the only reliable way to keep wall-clock
+  time.
+- **Verify interop GUIDs against the SDK headers** (`%ProgramFiles(x86)%\
+  Windows Kits\10\Include\...\um\*.h`) — wrong GUIDs fail as `E_INVALIDARG`
+  / `E_NOTIMPL` at runtime with no other clue.

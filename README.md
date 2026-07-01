@@ -4,14 +4,19 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
 ![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4)
 
-Ultra-lightweight screenshot tool for Windows, built for fast feedback loops —
-especially pasting annotated screenshots into AI coding chats. Replaces the
-built-in **Win+Shift+S** snip with a tighter flow:
+Ultra-lightweight screenshot **and screen recording** tool for Windows, built
+for fast feedback loops — especially pasting annotated screenshots into AI
+coding chats. Replaces the built-in **Win+Shift+S** snip with a tighter flow:
 
 **snip → auto-save + clipboard → floating thumbnail → annotate → paste anywhere.**
 
-Single-file exe. .NET 8 + WPF, no external packages. The core app is ~0.25 MB;
-OCR ships as a separate flavor so the lightweight build stays lightweight.
+And the same flow for video: **Win+Shift+D → pick a region/window/screen →
+MP4 → trim → paste as a file.**
+
+Single-file exe. .NET 8 + WPF, no external packages — video encoding is
+hand-rolled Media Foundation interop, capture is Windows.Graphics.Capture /
+DXGI Desktop Duplication. The core app is ~0.3 MB; OCR ships as a separate
+flavor so the lightweight build stays lightweight.
 
 ## Install
 
@@ -20,8 +25,8 @@ Two flavors:
 
 | File | Size | What you get |
 |---|---|---|
-| `WinSnipper.exe` | ~0.25 MB | The full screenshot flow — snip, thumbnail, annotate, redact |
-| `WinSnipper-OCR.exe` | ~25 MB | Everything above + **Copy Text** (Windows OCR) |
+| `WinSnipper.exe` | ~0.3 MB | The full flow — snip, record, trim, thumbnail, annotate, redact |
+| `WinSnipper-OCR.exe` | ~25 MB | Everything above + **Copy Text** (Windows OCR) + Windows.Graphics.Capture recording (records hardware-overlay video — browser video playback — that other capture paths show as black) |
 
 Both need the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
 Tick *Start with Windows* in Settings if it earns a permanent spot.
@@ -72,6 +77,42 @@ Invoke-WebRequest "https://github.com/v2matosevic/WinSnipper/releases/latest/dow
    dialogs, ever. Closing always saves silently and refreshes the clipboard,
    so what you paste is what you drew.
 
+## Screen recording
+
+1. Press **Win+Shift+D** (rebindable) — a live overlay opens with three pick
+   modes: **Region** (drag), **Window** (click one), **Screen** (click a
+   monitor). Keys `R`/`W`/`S` or `1`/`2`/`3` switch modes; Esc cancels.
+2. Recording starts immediately: a red border marks the region and a small
+   HUD pill shows elapsed time with **pause** and **stop**. Neither appears
+   in the video. Press the hotkey again (or the HUD stop) to finish.
+3. The MP4 is saved to `<snips folder>\Recordings\`, lands on the clipboard
+   as a pasteable **file**, and a floating thumbnail appears — click it to
+   open the **trim editor**.
+4. Trim: a filmstrip timeline with draggable in/out handles, playhead,
+   time bubble while dragging. Space plays the selection, `[` / `]` set the
+   edges at the playhead, ←/→ step frames. Save writes a frame-accurate
+   `(trimmed)` copy, or tick *Replace original*.
+
+Details that matter:
+
+- **Capture ladder**: Windows.Graphics.Capture (OCR flavor — the only API
+  that sees hardware-overlay/MPO video planes, i.e. browser video playback)
+  → DXGI Desktop Duplication → GDI. `%APPDATA%\WinSnipper\recorder.log`
+  records which path each recording used.
+- **Encoding**: H.264 MP4 via a Media Foundation sink writer (hardware
+  encoder when it cooperates), constant frame rate with wall-clock-correct
+  timing, a keyframe every second so seeking/scrubbing stays instant.
+  15 / 30 / 60 fps and cursor on/off in Settings.
+- DRM-protected content (Netflix and friends) records black — the OS
+  enforces that for every capture tool.
+- `WinSnipper.exe --trim <file.mp4>` opens the trim editor directly.
+
+## Auto-delete
+
+Optional (Settings): recycle snips and recordings older than 7–90 days.
+Files go to the Recycle Bin, never hard-deleted, and only files WinSnipper
+itself created are touched.
+
 ## Why the hotkey override works
 
 A `WH_KEYBOARD_LL` hook sees Win+Shift+S before the Windows Snipping Tool does
@@ -82,10 +123,13 @@ WinSnipper and stock Windows behavior is back instantly.
 
 Tray icon → **Settings…**
 
-- Rebind the capture hotkey (any modifier combo — recorded live, including Win-combos)
+- Rebind the snip and recording hotkeys (any modifier combo — recorded live,
+  including Win-combos)
+- Recording frame rate (15/30/60) and cursor visibility
 - Thumbnail auto-dismiss time (1–15 s)
-- Snips folder
+- Snips folder (recordings go to its `Recordings` subfolder)
 - Auto-copy to clipboard on/off
+- Auto-delete old captures (off by default; Recycle Bin only)
 - Start with Windows
 
 Stored in `%APPDATA%\WinSnipper\settings.json`.
@@ -127,11 +171,12 @@ crops are pixel-exact on scaled and mixed-DPI displays.
 
 Ideas queued up — PRs welcome:
 
+- **Audio in recordings** — mic and/or system loopback (WASAPI)
+- **GIF export** — for the places MP4 can't go
 - **Color picker** — grab the hex of any pixel on screen
 - **Snip history** — browse recent snips from the tray
 - Highlighter pen, line tool
 - Re-editable annotations (select / move / delete individual shapes)
-- Optional Desktop Duplication capture path for exclusive-fullscreen games
 
 ## Docs
 
