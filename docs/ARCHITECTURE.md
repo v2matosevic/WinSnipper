@@ -1,4 +1,4 @@
-# Architecture
+﻿# Architecture
 
 One WPF process, one project, no external packages. Two flows share the same
 front half; each component owns one stage.
@@ -21,7 +21,8 @@ KeyboardHook ────┤                       window/screen)   thumb)
 | `ScreenCapture.cs` | GDI BitBlt of the whole virtual screen (all monitors) into a frozen `BitmapSource`, in physical pixels. |
 | `SnipManager.cs` | One snip end-to-end: hide thumbs → capture → overlay → crop → save + clipboard → spawn thumbnail. |
 | `SnipOverlay.xaml` | Fullscreen selection UI with three pick modes: drag a **region**, click a **window** (`EnumWindows` + DWM frame bounds, cloaked windows filtered), click a **screen**. Frozen-screenshot mode for snips, live transparent mode for recordings (the desktop keeps moving). All selection math in physical pixels via `GetCursorPos`, so results are pixel-exact at any DPI scale. |
-| `FloatingThumb.xaml` | Bottom-right pinned thumbnail. Click = open editor (and self-dismiss), drag = `DoDragDrop` FileDrop, auto-fades after the configured timeout, hover pauses. |
+| `FloatingThumb.xaml` | Pinned thumbnail, bottom-right **of the monitor the capture came from**. Click = open editor (and self-dismiss), drag = `DoDragDrop` FileDrop, auto-fades after the configured timeout, hover pauses. Position is applied with `SetWindowPos` in physical pixels via `Monitors`, and stacking compares physical tops — `Window.Left/Top` converts DIPs using the *source* monitor's DPI and lands wrong across mixed-scaling displays. |
+| `Monitors.cs` | Per-monitor work areas and DPI scale (`MonitorFromPoint` / `GetMonitorInfo` / `GetDpiForMonitor`). Exists because WPF only exposes `SystemParameters.WorkArea`, which is the primary monitor. |
 | `EditorWindow.xaml` | Frameless annotation editor. The `Surface` grid is kept at 1 DIP == 1 px, so a 96-DPI `RenderTargetBitmap` of it (`Composite()`) is a pixel-exact output. Every tool adds an element to the `Ink` canvas and the shared undo stack; crop and pixelate bake from the live composite. |
 | `SettingsWindow.xaml` | Hotkey recorder (both hotkeys) + preferences. |
 | `Settings.cs` | JSON persistence (`%APPDATA%\WinSnipper\settings.json`), `Settings.Current` + `Changed` event. |
@@ -30,7 +31,7 @@ KeyboardHook ────┤                       window/screen)   thumb)
 | `Util.cs` | PNG save, clipboard retry wrappers (image / file / text), OCR (`Windows.Media.Ocr`, upscaled input, language fallback chain). |
 | `AutoCleanup.cs` | Opt-in: recycles `Snip *.png` / `Recording *.mp4` older than N days (save dir + `Recordings\`), via `SHFileOperation` `FOF_ALLOWUNDO` — Recycle Bin, never a hard delete. |
 | `RecordingHud.xaml` | Recording control pill (elapsed / pause / stop) + four border strips around the region. Everything is `WDA_EXCLUDEFROMCAPTURE`d and placed strictly **outside** the recorded pixels — GDI-style capture renders excluded windows as black, so nothing excluded may ever overlap the region. |
-| `TrimWindow.xaml` | Filmstrip trim editor: draggable in/out handles, playhead, time bubble, selection-bounded playback. Drags never seek per pixel — visuals are instant, the `MediaElement` preview follows on a ~90 ms throttle. |
+| `TrimWindow.xaml` | Filmstrip trim editor: draggable in/out handles, playhead, time bubble, selection-bounded playback. Drags never seek per pixel — visuals are instant, the `MediaElement` preview follows on a ~90 ms throttle. Filmstrip tiles are sized to the clip's aspect (from `MediaElement.NaturalVideoWidth/Height`) and tiled to fill the timeline, rebuilt on a debounced resize. |
 
 ## Recording pipeline (`src/Recording/`)
 
@@ -41,8 +42,9 @@ KeyboardHook ────┤                       window/screen)   thumb)
 | `WgcCapture.cs` | Windows.Graphics.Capture backend (`WINRT` flavor only). The only API that captures hardware-overlay (MPO) planes — where browsers put playing video; BitBlt **and** Desktop Duplication render those black on modern Win11 drivers. Monitor item via `IGraphicsCaptureItemInterop`, free-threaded frame pool polled from the capture thread, cursor drawn manually. |
 | `DesktopDuplication.cs` | DXGI Desktop Duplication backend + the shared `IRegionCapture` interface. Hand-rolled D3D11/DXGI vtables — placeholder methods are named `ReservedN`, **never** `_VtblGap*` (the runtime parses that prefix as a multi-slot gap directive and the vtable shifts). |
 | `MediaFoundation.cs` | Minimal MF COM interop: sink writer, source reader, samples/buffers, `ICodecAPI`. Vtable order is load-bearing. All GUIDs verified against the Windows SDK headers — several online snippets circulate wrong ones. |
-| `VideoTrimmer.cs` | Frame-accurate trim: source reader decodes to RGB32, sink writer re-encodes `[start, end]`. Re-encoding (not compressed-copy) keeps cuts exact regardless of GOP. |
-| `VideoThumbnails.cs` | Filmstrip frames via source reader. Handles the coded-frame pitch trap: decoders may hand back the macroblock-aligned frame (e.g. 1136×640 for 1124×628) as a 1-D buffer while the type claims display stride — real pitch is derived from buffer length / coded height when `IMF2DBuffer` is absent. |
+| `VideoTrimmer.cs` | Frame-accurate trim: source reader decodes to RGB32, sink writer re-encodes `[start, end]`. Re-encoding (not compressed-copy) keeps cuts exact regardless of GOP. Frames go through `VideoFrames.PackSample` first — passing the decoder's own buffer to the encoder sheared every frame whenever the width was not a multiple of 16. Re-encodes at 1.6× the source bitrate to limit generation loss. |
+| `VideoFrames.cs` | The one place that turns a decoded RGB32 sample into packed top-down BGRA. Handles the coded-frame pitch trap: decoders may hand back the macroblock-aligned frame (e.g. 1136×640 for 1124×628) as a 1-D buffer while the type claims display stride — real pitch is derived from buffer length / coded height when `IMF2DBuffer` is absent. Copying at the wrong pitch produces diagonal smears. |
+| `VideoThumbnails.cs` | Filmstrip frames via source reader, through `VideoFrames`. Decodes forward past the seek's keyframe to the requested timestamp, or neighbouring cells show the same picture. |
 
 Capture ladder at runtime: **WGC → Desktop Duplication → GDI**, chosen per
 recording, falling down a rung on any failure (spanning regions, rotated

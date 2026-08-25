@@ -1,4 +1,4 @@
-# WinSnipper
+﻿# WinSnipper
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
@@ -62,7 +62,10 @@ Invoke-WebRequest "https://github.com/v2matosevic/WinSnipper/releases/latest/dow
 
 1. Press **Win+Shift+S** (rebindable) — screen freezes, drag a region, done.
 2. The snip is saved to your snips folder and copied to the clipboard.
-3. A small **floating thumbnail** appears bottom-right for a few seconds:
+3. A small **floating thumbnail** appears bottom-right **of the display you
+   snipped on** — not the primary one — for a few seconds. Thumbnails stack
+   upward per monitor, and placement is correct across displays running
+   different scaling:
    - **click** → opens the annotation editor (thumbnail disappears)
    - **drag** → carries the PNG out as a real file — drop it into Explorer,
      browser upload fields, chats, e-mail (plus bitmap data for image-paste targets)
@@ -90,8 +93,17 @@ Invoke-WebRequest "https://github.com/v2matosevic/WinSnipper/releases/latest/dow
    open the **trim editor**.
 4. Trim: a filmstrip timeline with draggable in/out handles, playhead,
    time bubble while dragging. Space plays the selection, `[` / `]` set the
-   edges at the playhead, ←/→ step frames. Save writes a frame-accurate
-   `(trimmed)` copy, or tick *Replace original*.
+   edges at the playhead, ←/→ step frames. **Save trimmed** writes a
+   frame-accurate `(trimmed)` copy next to the original, **Save as…** asks
+   where to put it, or tick *Replace original*.
+
+**Choosing where a recording lands.** Recordings file themselves under
+`Recordings\` so a take is never lost to a dismissed dialog. To put one
+somewhere else, use **Save as…** on its thumbnail — it moves the MP4 and
+re-points the card, so dragging it out afterwards drags the file you chose.
+If you would rather be asked every time, tick *Ask where to save each
+recording when it stops* in Settings; cancelling that dialog still leaves the
+file in `Recordings\`.
 
 Details that matter:
 
@@ -126,6 +138,7 @@ Tray icon → **Settings…**
 - Rebind the snip and recording hotkeys (any modifier combo — recorded live,
   including Win-combos)
 - Recording frame rate (15/30/60) and cursor visibility
+- Ask where to save each recording when it stops (off by default)
 - Thumbnail auto-dismiss time (1–15 s)
 - Snips folder (recordings go to its `Recordings` subfolder)
 - Auto-copy to clipboard on/off
