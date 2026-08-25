@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace WinSnipper.Recording;
 
@@ -58,6 +58,7 @@ internal static class Mf
     public const uint MF_SOURCE_READER_ALL_STREAMS = 0xFFFFFFFE;
     public const uint MF_SOURCE_READERF_ERROR = 0x1;
     public const uint MF_SOURCE_READERF_ENDOFSTREAM = 0x2;
+    public const uint MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED = 0x10;
 
     // ---------- exports ----------
 

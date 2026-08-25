@@ -118,15 +118,59 @@ public sealed class RecordingManager
             if (lastFrame is null || !File.Exists(recorder.FilePath))
                 return; // nothing captured (or the recorder already reported the error)
 
-            if (Settings.Current.CopyToClipboard)
-                Util.TrySetClipboardFile(recorder.FilePath);
+            string path = Settings.Current.AskWhereToSaveRecordings
+                ? PromptForDestination(recorder.FilePath)
+                : recorder.FilePath;
 
-            new FloatingThumb(recorder.FilePath, lastFrame, isVideo: true).ShowStacked();
+            if (Settings.Current.CopyToClipboard)
+                Util.TrySetClipboardFile(path);
+
+            var r = recorder.Region;
+            var anchor = new System.Drawing.Point(r.X + r.Width / 2, r.Y + r.Height / 2);
+            new FloatingThumb(path, lastFrame, isVideo: true, anchor: anchor).ShowStacked();
         }
         finally
         {
             _recorder = null;
             _stopping = false;
+        }
+    }
+
+    /// <summary>
+    /// Asks where the finished recording should live. The MP4 is already on
+    /// disk under Recordings\ — cancelling simply keeps it there, so a stray
+    /// Escape can never lose a take.
+    /// </summary>
+    private static string PromptForDestination(string current)
+    {
+        try
+        {
+            string? lastDir = Settings.Current.LastSaveAsDir;
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Save recording",
+                FileName = Path.GetFileName(current),
+                Filter = "MP4 video|*.mp4",
+                DefaultExt = ".mp4",
+                InitialDirectory = !string.IsNullOrEmpty(lastDir) && Directory.Exists(lastDir)
+                    ? lastDir
+                    : Util.RecordingsDir,
+            };
+            if (dlg.ShowDialog() != true) return current;
+            if (string.Equals(dlg.FileName, current, StringComparison.OrdinalIgnoreCase)) return current;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(dlg.FileName)!);
+            File.Copy(current, dlg.FileName, overwrite: true);
+            try { File.Delete(current); } catch { /* leave the original if it is still locked */ }
+
+            Settings.Current.LastSaveAsDir = Path.GetDirectoryName(dlg.FileName) ?? "";
+            Settings.Current.Save();
+            return dlg.FileName;
+        }
+        catch (Exception ex)
+        {
+            Util.LogCrash("RecordingSaveAs", ex);
+            return current; // the recording is safe where it is
         }
     }
 

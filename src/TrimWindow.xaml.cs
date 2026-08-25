@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -17,7 +17,8 @@ namespace WinSnipper;
 /// </summary>
 public partial class TrimWindow : Window
 {
-    private const int ThumbCount = 14;
+    /// <summary>Upper bound on decoded preview frames — a very wide window shouldn't decode forever.</summary>
+    private const int MaxThumbs = 48;
     private const double GrabPx = 12; // hit slop around handles/playhead
 
     private enum DragTarget { None, Start, End, Playhead }
@@ -39,6 +40,14 @@ public partial class TrimWindow : Window
     private TimeSpan? _pendingSeek;
     private DateTime _lastSeek = DateTime.MinValue;
 
+    // Filmstrip: tiles are sized to the video's own aspect ratio and as many
+    // are laid down as the timeline is wide, so the strip reads like film
+    // rather than a row of centre-cropped squares.
+    private double _stripAspect;
+    private int _stripCount = -1;
+    private System.Threading.CancellationTokenSource? _stripCts;
+    private DispatcherTimer? _stripDebounce;
+
     public TrimWindow(string path)
     {
         InitializeComponent();
@@ -53,11 +62,12 @@ public partial class TrimWindow : Window
             Player.Source = new Uri(_path);
             Player.Play();
             Player.Pause();
-            _ = LoadFilmstripAsync();
         };
         Closed += (_, _) =>
         {
             _tick.Stop();
+            _stripDebounce?.Stop();
+            _stripCts?.Cancel();
             Player.Close();
         };
     }
@@ -105,24 +115,68 @@ public partial class TrimWindow : Window
 
     // ---------- filmstrip ----------
 
-    private async Task LoadFilmstripAsync()
+    /// <summary>
+    /// Rebuilds the strip for the current timeline width. Tile width is fixed
+    /// by the video's aspect, so resizing changes how many frames are shown,
+    /// not how squashed each one is.
+    /// </summary>
+    private async void RebuildFilmstripAsync()
     {
+        double stripH = TimelineHost.ActualHeight;
+        double stripW = TimelineWidth;
+        if (stripH <= 0 || stripW <= 0 || _stripAspect <= 0) return;
+
+        double tileW = Math.Max(24, stripH * _stripAspect);
+        int count = Math.Clamp((int)Math.Ceiling(stripW / tileW), 1, MaxThumbs);
+        if (count == _stripCount) return; // same strip — don't re-decode on every drag pixel
+        _stripCount = count;
+
+        _stripCts?.Cancel();
+        var cts = new System.Threading.CancellationTokenSource();
+        _stripCts = cts;
+
         try
         {
-            var (frames, _) = await Task.Run(() => VideoThumbnails.Extract(_path, ThumbCount, 96));
+            // Decode at the strip's real device height so tiles stay crisp on a HiDPI display.
+            int px = Math.Max(32, (int)Math.Round(stripH * System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleY));
+            var (frames, _) = await Task.Run(() => VideoThumbnails.Extract(_path, count, px), cts.Token);
+            if (cts.IsCancellationRequested || !IsLoaded) return;
+
+            FilmStrip.Children.Clear();
             foreach (var f in frames)
             {
                 FilmStrip.Children.Add(new Image
                 {
                     Source = f,
-                    Stretch = System.Windows.Media.Stretch.UniformToFill,
+                    Width = tileW,
+                    Height = stripH,
+                    Stretch = System.Windows.Media.Stretch.Fill,
                 });
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // superseded by a newer resize
         }
         catch (Exception ex)
         {
             Util.LogCrash("Filmstrip", ex); // strip stays dark; trimming still works
         }
+    }
+
+    /// <summary>Coalesces the burst of SizeChanged events a window drag produces.</summary>
+    private void QueueFilmstripRebuild()
+    {
+        _stripDebounce ??= CreateStripDebounce();
+        _stripDebounce.Stop();
+        _stripDebounce.Start();
+    }
+
+    private DispatcherTimer CreateStripDebounce()
+    {
+        var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
+        t.Tick += (_, _) => { t.Stop(); RebuildFilmstripAsync(); };
+        return t;
     }
 
     // ---------- playback ----------
@@ -133,6 +187,14 @@ public partial class TrimWindow : Window
         _trimEnd = _duration;
         _tick.Start();
         UpdateTimeline();
+
+        // MediaElement already knows the frame size — no need to decode a probe
+        // frame just to learn the aspect ratio.
+        _stripAspect = Player.NaturalVideoHeight > 0
+            ? Player.NaturalVideoWidth / (double)Player.NaturalVideoHeight
+            : 16.0 / 9.0;
+        _stripCount = -1;
+        RebuildFilmstripAsync();
     }
 
     private void Player_MediaEnded(object sender, RoutedEventArgs e)
@@ -305,6 +367,7 @@ public partial class TrimWindow : Window
         TimelineInner.Clip = new System.Windows.Media.RectangleGeometry(
             new Rect(0, 0, TimelineHost.ActualWidth, TimelineHost.ActualHeight), 7, 7);
         UpdateTimeline();
+        QueueFilmstripRebuild();
     }
 
     private void UpdateTimeline()
@@ -340,7 +403,9 @@ public partial class TrimWindow : Window
         RangeLabel.Text = $"{Fmt(_trimStart)} — {Fmt(_trimEnd)}   ·   {selected.TotalSeconds:0.0}s selected";
 
         bool trimmed = _trimStart > TimeSpan.Zero || _trimEnd < _duration;
-        SaveBtn.IsEnabled = !_busy && _trimEnd > _trimStart && trimmed;
+        bool usable = !_busy && _trimEnd > _trimStart;
+        SaveBtn.IsEnabled = usable && trimmed;
+        SaveAsBtn.IsEnabled = usable; // exporting an untrimmed copy elsewhere is still useful
     }
 
     private static string Fmt(TimeSpan t) =>
@@ -348,22 +413,55 @@ public partial class TrimWindow : Window
 
     // ---------- save ----------
 
-    private async void SaveTrim_Click(object sender, RoutedEventArgs e)
+    private void SaveTrim_Click(object sender, RoutedEventArgs e) => _ = SaveAsync(askWhere: false);
+
+    /// <summary>Same trim, but the destination is chosen in a file dialog.</summary>
+    private void SaveTrimAs_Click(object sender, RoutedEventArgs e) => _ = SaveAsync(askWhere: true);
+
+    private async Task SaveAsync(bool askWhere)
     {
         if (_busy) return;
+        bool replace = !askWhere && ReplaceCheck.IsChecked == true;
+
+        string finalPath;
+        if (replace)
+        {
+            finalPath = _path;
+        }
+        else
+        {
+            finalPath = NextTrimmedPath();
+            if (askWhere)
+            {
+                string? lastDir = Settings.Current.LastSaveAsDir;
+                var dlg = new Microsoft.Win32.SaveFileDialog
+                {
+                    Title = "Save trimmed recording",
+                    FileName = Path.GetFileName(finalPath),
+                    Filter = "MP4 video|*.mp4",
+                    DefaultExt = ".mp4",
+                    InitialDirectory = !string.IsNullOrEmpty(lastDir) && Directory.Exists(lastDir)
+                        ? lastDir
+                        : Path.GetDirectoryName(_path),
+                };
+                if (dlg.ShowDialog(this) != true) return;
+
+                finalPath = dlg.FileName;
+                Settings.Current.LastSaveAsDir = Path.GetDirectoryName(finalPath) ?? "";
+                Settings.Current.Save();
+
+                // Overwriting the file we are reading from would deadlock the
+                // reader; treat "save as, onto myself" as a replace.
+                replace = string.Equals(finalPath, _path, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
         _busy = true;
-        bool replace = ReplaceCheck.IsChecked == true;
         SaveBtn.IsEnabled = false;
+        SaveAsBtn.IsEnabled = false;
         TrimProgress.Visibility = Visibility.Visible;
         if (_playing) SetPlaying(false);
 
-        string finalPath = replace
-            ? _path
-            : Path.Combine(Path.GetDirectoryName(_path)!,
-                Path.GetFileNameWithoutExtension(_path) + " (trimmed).mp4");
-        for (int i = 2; !replace && File.Exists(finalPath); i++)
-            finalPath = Path.Combine(Path.GetDirectoryName(_path)!,
-                Path.GetFileNameWithoutExtension(_path) + $" (trimmed {i}).mp4");
         string tmpPath = finalPath + ".tmp.mp4";
 
         var start = _trimStart;
@@ -402,6 +500,17 @@ public partial class TrimWindow : Window
             TrimProgress.Visibility = Visibility.Collapsed;
             UpdateTimeline();
         }
+    }
+
+    /// <summary>"clip (trimmed).mp4" next to the source, skipping names already taken.</summary>
+    private string NextTrimmedPath()
+    {
+        string dir = Path.GetDirectoryName(_path)!;
+        string stem = Path.GetFileNameWithoutExtension(_path);
+        string path = Path.Combine(dir, stem + " (trimmed).mp4");
+        for (int i = 2; File.Exists(path); i++)
+            path = Path.Combine(dir, $"{stem} (trimmed {i}).mp4");
+        return path;
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();

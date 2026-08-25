@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 
 namespace WinSnipper;
@@ -28,6 +28,7 @@ public partial class SettingsWindow : Window
 
         FpsCombo.SelectedIndex = Math.Max(0, Array.IndexOf(FpsChoices, _draft.RecordFps));
         CursorCheck.IsChecked = _draft.RecordCursor;
+        AskWhereCheck.IsChecked = _draft.AskWhereToSaveRecordings;
 
         AutoDeleteCheck.IsChecked = _draft.AutoDeleteDays > 0;
         int delIdx = Array.IndexOf(AutoDeleteChoices, _draft.AutoDeleteDays);
@@ -186,6 +187,7 @@ public partial class SettingsWindow : Window
         _draft.CopyToClipboard = ClipboardCheck.IsChecked == true;
         _draft.RecordFps = FpsChoices[Math.Clamp(FpsCombo.SelectedIndex, 0, FpsChoices.Length - 1)];
         _draft.RecordCursor = CursorCheck.IsChecked == true;
+        _draft.AskWhereToSaveRecordings = AskWhereCheck.IsChecked == true;
         _draft.AutoDeleteDays = AutoDeleteCheck.IsChecked == true
             ? AutoDeleteChoices[Math.Clamp(AutoDeleteCombo.SelectedIndex, 0, AutoDeleteChoices.Length - 1)]
             : 0;

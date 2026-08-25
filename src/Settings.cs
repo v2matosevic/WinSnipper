@@ -26,6 +26,12 @@ public sealed class Settings
     public int RecordFps { get; set; } = 30;
     public bool RecordCursor { get; set; } = true;
 
+    /// <summary>Prompt for a destination when a recording stops, instead of filing it under Recordings\.</summary>
+    public bool AskWhereToSaveRecordings { get; set; }
+
+    /// <summary>Last folder picked in a "Save as…" dialog, so the next one opens there.</summary>
+    public string LastSaveAsDir { get; set; } = "";
+
     /// <summary>Recycle captures older than this many days; 0 disables.</summary>
     public int AutoDeleteDays { get; set; }
 

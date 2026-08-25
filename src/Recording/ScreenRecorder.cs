@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -18,6 +18,9 @@ public sealed class ScreenRecorder
 {
     private readonly string _path;
     private readonly Int32Rect _region;   // physical screen px, width/height already even
+
+    /// <summary>The captured region in physical screen pixels.</summary>
+    public Int32Rect Region => _region;
     private readonly int _fps;
     private readonly bool _cursor;
 
@@ -357,11 +360,11 @@ public sealed class ScreenRecorder
     /// implementations are stubs.
     /// </summary>
     internal static IMFSinkWriter CreateWriter(string path, int w, int h, int fpsNum, int fpsDen,
-        IMFMediaType? inputType, out int streamIndex)
+        IMFMediaType? inputType, out int streamIndex, uint bitrate = 0)
     {
         int gop = Math.Max(1, fpsNum / Math.Max(1, fpsDen));
 
-        var writer = CreateWriterCore(path, w, h, fpsNum, fpsDen, inputType, hardware: true, out streamIndex);
+        var writer = CreateWriterCore(path, w, h, fpsNum, fpsDen, inputType, hardware: true, out streamIndex, bitrate);
         if (TrySetGopSize(writer, streamIndex, gop))
         {
             Mf.Check(writer.BeginWriting());
@@ -373,14 +376,14 @@ public sealed class ScreenRecorder
 
         Diag("gop: hardware encoder refused, using software encoder");
         Mf.Release(writer); // recreating from the URL truncates the file
-        writer = CreateWriterCore(path, w, h, fpsNum, fpsDen, inputType, hardware: false, out streamIndex);
+        writer = CreateWriterCore(path, w, h, fpsNum, fpsDen, inputType, hardware: false, out streamIndex, bitrate);
         TrySetGopSize(writer, streamIndex, gop);
         Mf.Check(writer.BeginWriting());
         return writer;
     }
 
     private static IMFSinkWriter CreateWriterCore(string path, int w, int h, int fpsNum, int fpsDen,
-        IMFMediaType? inputType, bool hardware, out int streamIndex)
+        IMFMediaType? inputType, bool hardware, out int streamIndex, uint bitrate)
     {
         Mf.Check(Mf.MFCreateAttributes(out var attrs, 2));
         var key = Mf.MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS;
@@ -398,7 +401,7 @@ public sealed class ScreenRecorder
             Mf.SetGuid(outType, Mf.MF_MT_MAJOR_TYPE, Mf.MFMediaType_Video);
             Mf.SetGuid(outType, Mf.MF_MT_SUBTYPE, Mf.MFVideoFormat_H264);
             key = Mf.MF_MT_AVG_BITRATE;
-            Mf.Check(outType.SetUINT32(ref key, Bitrate(w, h, fps)));
+            Mf.Check(outType.SetUINT32(ref key, bitrate != 0 ? bitrate : Bitrate(w, h, fps)));
             key = Mf.MF_MT_INTERLACE_MODE;
             Mf.Check(outType.SetUINT32(ref key, Mf.MFVideoInterlace_Progressive));
             key = Mf.MF_MT_MAX_KEYFRAME_SPACING;

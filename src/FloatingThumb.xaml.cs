@@ -1,4 +1,5 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -11,7 +12,8 @@ namespace WinSnipper;
 
 /// <summary>
 /// Pinned, draggable thumbnail of a snip. New thumbs stack upward from the
-/// bottom-right corner of the primary work area.
+/// bottom-right corner of the monitor the capture came from — not the primary
+/// one — so on a multi-display desk the thumbnail lands where you were looking.
 /// </summary>
 public partial class FloatingThumb : Window
 {
@@ -22,7 +24,7 @@ public partial class FloatingThumb : Window
 
     private static TimeSpan DismissAfter => TimeSpan.FromSeconds(Settings.Current.DismissSeconds);
 
-    private readonly string _path;
+    private string _path;
     private readonly bool _isVideo;
     private BitmapSource _img;
     private EditorWindow? _editor;
@@ -30,11 +32,25 @@ public partial class FloatingThumb : Window
     private readonly DispatcherTimer _dismissTimer;
     private bool _fading;
 
-    public FloatingThumb(string path, BitmapSource image, bool isVideo = false)
+    // Which monitor this thumb was placed on, and where its top edge sits in
+    // physical pixels — stacking has to compare across displays that may run
+    // different DPI, so Window.Top (DIPs) is not a usable yardstick.
+    private readonly System.Drawing.Point? _anchor;
+    private IntPtr _monitor;
+    private int _physTop;
+
+    /// <param name="anchor">
+    /// A point inside the captured region, in virtual-screen pixels. The thumb
+    /// docks to the monitor containing it; null falls back to the cursor's monitor.
+    /// </param>
+    public FloatingThumb(string path, BitmapSource image, bool isVideo = false,
+                         System.Drawing.Point? anchor = null)
     {
         InitializeComponent();
         _path = path;
         _isVideo = isVideo;
+        _anchor = anchor;
+        Opacity = 0; // AnimateIn fades it up once it is on the right monitor
         _img = image;
         Thumb.Source = image;
         Card.ToolTip = isVideo
@@ -48,7 +64,6 @@ public partial class FloatingThumb : Window
             EditMenuItem.Visibility = Visibility.Collapsed;
             CopyMenuItem.Visibility = Visibility.Collapsed;
             OcrMenuItem.Visibility = Visibility.Collapsed;
-            SaveAsMenuItem.Visibility = Visibility.Collapsed;
             TrimMenuItem.Visibility = Visibility.Visible;
             CopyFileMenuItem.Visibility = Visibility.Visible;
             OpenDefaultMenuItem.Header = "Open in default player";
@@ -59,6 +74,10 @@ public partial class FloatingThumb : Window
             PositionStacked();
             AnimateIn();
         };
+        // Dragging the card to another display (or a DPI change on this one)
+        // must re-home it, or the next thumb stacks against a stale edge.
+        LocationChanged += (_, _) => SyncPhysicalPosition();
+        DpiChanged += (_, _) => SyncPhysicalPosition();
         Closed += (_, _) => _open.Remove(this);
 
         _dismissTimer = new DispatcherTimer { Interval = DismissAfter };
@@ -111,18 +130,42 @@ public partial class FloatingThumb : Window
 
     private void PositionStacked()
     {
-        var wa = SystemParameters.WorkArea;
-        Left = wa.Right - ActualWidth + Shadow - Gap;
+        var wa = _anchor is { } a
+            ? Monitors.FromPoint(a.X, a.Y)
+            : Monitors.FromForegroundWindow() ?? Monitors.FromCursor();
+        _monitor = wa.Handle;
 
-        // Stack above the lowest thumb still on screen.
-        double bottomEdge = wa.Bottom + Shadow - Gap;
+        // ActualWidth/Height are DIPs (DPI-independent); the target monitor's
+        // own scale turns them into the physical size it will occupy there.
+        double s = wa.Scale;
+        int w = (int)Math.Round(ActualWidth * s);
+        int h = (int)Math.Round(ActualHeight * s);
+        int shadow = (int)Math.Round(Shadow * s);
+        int gap = (int)Math.Round(Gap * s);
+        int overlap = (int)Math.Round(8 * s);
+
+        int left = wa.Right - w + shadow - gap;
+
+        // Stack above the lowest thumb still on this monitor.
+        int bottomEdge = wa.Bottom + shadow - gap;
         foreach (var t in _open)
         {
-            if (t == this) continue;
-            bottomEdge = Math.Min(bottomEdge, t.Top + Shadow - 8);
+            if (t == this || t._monitor != wa.Handle) continue;
+            bottomEdge = Math.Min(bottomEdge, t._physTop + shadow - overlap);
         }
-        Top = bottomEdge - ActualHeight;
-        if (Top < wa.Top) Top = wa.Top + Gap; // screen full of thumbs — just overlap at top
+        int top = bottomEdge - h;
+        if (top < wa.Top) top = wa.Top + gap; // screen full of thumbs — just overlap at top
+
+        _physTop = top;
+        Monitors.MoveTo(this, left, top, w, h);
+    }
+
+    /// <summary>Re-reads the card's real position so stacking stays correct after a drag.</summary>
+    private void SyncPhysicalPosition()
+    {
+        if (Monitors.TopLeftOf(this) is not { } p) return;
+        _physTop = p.Top;
+        _monitor = Monitors.FromPoint(p.Left, p.Top).Handle;
     }
 
     private bool _maybeDrag;
@@ -238,14 +281,50 @@ public partial class FloatingThumb : Window
 
     private void SaveAs_Click(object sender, RoutedEventArgs e)
     {
+        _pinned = true; // the dialog is modal — don't let the card fade behind it
+        _dismissTimer.Stop();
+
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
             FileName = IOPath.GetFileName(_path),
-            Filter = "PNG image|*.png",
-            DefaultExt = ".png",
+            Filter = _isVideo ? "MP4 video|*.mp4" : "PNG image|*.png",
+            DefaultExt = _isVideo ? ".mp4" : ".png",
+            InitialDirectory = Settings.Current.LastSaveAsDir is { Length: > 0 } d && Directory.Exists(d)
+                ? d
+                : IOPath.GetDirectoryName(_path),
         };
-        if (dlg.ShowDialog() == true)
+        if (dlg.ShowDialog() != true) return;
+
+        Settings.Current.LastSaveAsDir = IOPath.GetDirectoryName(dlg.FileName) ?? "";
+        Settings.Current.Save();
+
+        if (_isVideo)
+        {
+            // The MP4 already exists — relocate it and re-point the card, so the
+            // next action (drag out, copy file, trim) works on the file the user
+            // just chose rather than the one still sitting in Recordings\.
+            try
+            {
+                if (!string.Equals(dlg.FileName, _path, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Copy(_path, dlg.FileName, overwrite: true);
+                    try { File.Delete(_path); } catch { /* locked by a player — the copy is what matters */ }
+                    _path = dlg.FileName;
+                    if (Settings.Current.CopyToClipboard)
+                        Util.TrySetClipboardFile(_path);
+                }
+            }
+            catch (Exception ex)
+            {
+                Util.LogCrash("SaveAsVideo", ex);
+                MessageBox.Show(this, $"Could not save there:\n{ex.Message}", "WinSnipper",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        else
+        {
             Util.SavePng(_img, dlg.FileName);
+        }
     }
 
     private void OpenDefault_Click(object sender, RoutedEventArgs e) =>

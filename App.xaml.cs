@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using System.Windows;
@@ -49,12 +49,17 @@ public partial class App : Application
             }
         }
 
-        _mutex = new Mutex(true, "WinSnipper_SingleInstance", out bool isNew);
+        // Only the instance that actually owns the mutex may release it — the
+        // loser used to keep the handle and throw an unhandled
+        // ApplicationException out of OnExit on every double-launch.
+        var mutex = new Mutex(true, "WinSnipper_SingleInstance", out bool isNew);
         if (!isNew)
         {
+            mutex.Dispose();
             Shutdown(0);
             return;
         }
+        _mutex = mutex;
 
         InstallCrashHandlers();
 
@@ -227,7 +232,7 @@ public partial class App : Application
             try { _recordings.StopAsync().Wait(TimeSpan.FromSeconds(5)); } catch { }
         _hook?.Dispose();
         _tray?.Dispose();
-        _mutex?.ReleaseMutex();
+        try { _mutex?.ReleaseMutex(); } catch { /* never let shutdown throw */ }
         _mutex?.Dispose();
         base.OnExit(e);
     }

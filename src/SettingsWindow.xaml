@@ -1,4 +1,4 @@
-<Window x:Class="WinSnipper.SettingsWindow"
+﻿<Window x:Class="WinSnipper.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="WinSnipper Settings"
@@ -146,6 +146,8 @@
                 </ComboBox>
                 <CheckBox x:Name="CursorCheck" Content="Show mouse cursor" Margin="18,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
+            <CheckBox x:Name="AskWhereCheck" Margin="0,10,0,0"
+                      Content="Ask where to save each recording when it stops"/>
 
             <!-- dismiss -->
             <TextBlock Style="{StaticResource Label}" Text="Thumbnail auto-dismiss" Margin="0,18,0,0"/>

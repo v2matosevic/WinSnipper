@@ -1,4 +1,31 @@
-# Changelog
+﻿# Changelog
+
+## 0.6.2 — 2026-08-25
+
+- **Thumbnails appear on the screen you snipped**, not the primary one. The
+  card docks to the bottom-right of the monitor containing the capture, stacks
+  only against thumbs on that same monitor, and gets the placement right when
+  displays run different scaling
+- **Trimmed video is no longer sheared.** The trimmer handed decoded frames to
+  the encoder with the media type's advertised stride, but decoders pad rows
+  for alignment — so every frame came out as a diagonal smear whenever the
+  recorded width wasn't a multiple of 16 (measured: 1124×628 and 1366×768
+  broken, 1280×720 and 1920×1080 fine). Frames are now re-packed to a known
+  stride first, and trims re-encode at 1.6× the source bitrate so a cut clip
+  still looks like the take it came from
+- **Filmstrip shows the video.** Tiles are sized to the clip's aspect ratio
+  and as many are laid down as the timeline is wide, instead of 14 cells
+  centre-cropped to whatever shape they landed in. Preview frames also decode
+  forward to the requested timestamp rather than stopping at the previous
+  keyframe, so neighbouring cells differ. The strip rebuilds on window resize
+- **Choose where recordings go** — "Save as…" on a video thumbnail (moves the
+  MP4 and re-points the card), "Save as…" in the trim window, and an
+  *Ask where to save each recording when it stops* option in Settings.
+  Cancelling any of these keeps the file safely in `Recordings\`
+- Launching a second instance no longer dies with an unhandled
+  ApplicationException — the losing instance was releasing a mutex it never
+  owned
+- Trim window footer no longer overlaps its own buttons at narrow widths
 
 ## 0.6.1 — 2026-07-02
 

@@ -43,7 +43,12 @@ public sealed class SnipManager
                 if (Settings.Current.CopyToClipboard)
                     Util.TrySetClipboard(cropped);
 
-                new FloatingThumb(path, cropped).ShowStacked();
+                // Selection is relative to the captured bitmap; the thumbnail
+                // docks to whichever monitor the selection's centre falls on.
+                var anchor = new System.Drawing.Point(
+                    bounds.X + sel.X + sel.Width / 2,
+                    bounds.Y + sel.Y + sel.Height / 2);
+                new FloatingThumb(path, cropped, anchor: anchor).ShowStacked();
             }
         }
         finally
