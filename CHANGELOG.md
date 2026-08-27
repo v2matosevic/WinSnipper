@@ -1,5 +1,23 @@
 ﻿# Changelog
 
+## Unreleased
+
+- **A keep-alive task brings WinSnipper back if it dies.** It is a tray app with
+  no window, and the Run key only fires at logon — so anything that killed it
+  mid-session (a crash, a rebuild) left it gone until the next reboot, with no
+  quick way back. A scheduled task now launches the exe with `--watchdog` every
+  2 minutes: the single-instance mutex makes that a no-op while the app is
+  alive, and replaces it when it is not. Tray *Exit* writes a marker
+  `--watchdog` honours, so a deliberate quit still stays quit
+- **`WinSnipper.cmd` / `tools\winsnipper.ps1` — one entry point from zero.**
+  `setup` builds if needed, enables autostart, installs the keep-alive task,
+  creates desktop and Start Menu shortcuts and starts the app; `status`,
+  `start`, `stop`, `restart`, `build`, `logs` and `uninstall` cover the rest
+- **`session.log` makes a disappearance diagnosable.** Every run that claims the
+  mutex logs a startup line and, on a clean shutdown, a matching exit line with
+  its reason (tray exit, session ending, unhandled exception, exit code). A
+  startup with no exit after it was killed or crashed hard
+
 ## 0.6.2 — 2026-08-25
 
 - **Thumbnails appear on the screen you snipped**, not the primary one. The

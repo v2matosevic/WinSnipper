@@ -58,6 +58,39 @@ Invoke-WebRequest "https://github.com/v2matosevic/WinSnipper/releases/latest/dow
 & "$dir\WinSnipper.exe"
 ```
 
+## Keeping it running
+
+WinSnipper is a tray app with no window, so when it dies you find out by
+pressing the hotkey and getting nothing. From a clone of this repo, double-click
+`WinSnipper.cmd` — it builds if there is no build, enables autostart, installs a
+keep-alive task, drops a desktop and Start Menu shortcut, and starts the app.
+Safe to re-run; it only does what is missing.
+
+The same thing from a shell, plus the day-to-day commands:
+
+```powershell
+pwsh -File tools\winsnipper.ps1 setup     # from zero: build, install, start
+pwsh -File tools\winsnipper.ps1 status    # running? which build? watchdog armed?
+pwsh -File tools\winsnipper.ps1 restart   # after a rebuild
+pwsh -File tools\winsnipper.ps1 logs      # session / crash / recorder logs
+pwsh -File tools\winsnipper.ps1 build -Flavor both
+pwsh -File tools\winsnipper.ps1 uninstall # drop the task, run key and shortcuts
+```
+
+**The keep-alive task** (`WinSnipper Keep-Alive` in Task Scheduler) runs the exe
+with `--watchdog` every 2 minutes. A live instance turns that into a no-op via
+the single-instance mutex; a dead one gets replaced. Quitting from the tray
+writes `%APPDATA%\WinSnipper\user-quit.flag`, which `--watchdog` honours — so a
+crash comes back within two minutes and a deliberate quit stays quit until you
+start it again. Task Scheduler counts the running exe as the task, so while the
+app is alive the ticks cost nothing.
+
+**When it does vanish, `%APPDATA%\WinSnipper\session.log` says why.** Every run
+that claims the mutex logs a `startup` line and, if it shuts down cleanly, a
+matching `exit` line with the reason. A `startup` with no `exit` after it was
+killed or crashed hard — that is the signature to look for. Stack traces go to
+`crash.log`, recording backend decisions to `recorder.log`.
+
 ## Flow
 
 1. Press **Win+Shift+S** (rebindable) — screen freezes, drag a region, done.

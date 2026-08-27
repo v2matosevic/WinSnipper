@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
 
@@ -73,6 +73,56 @@ public static class Util
             {
                 Thread.Sleep(60);
             }
+        }
+    }
+
+    /// <summary>%APPDATA%\WinSnipper — logs, and the deliberate-quit marker.</summary>
+    public static string StateDir
+    {
+        get
+        {
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WinSnipper");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    /// <summary>
+    /// Written when the user quits on purpose (tray Exit) and cleared on every
+    /// startup. The watchdog only relaunches WinSnipper when this is absent —
+    /// so a crash comes back and a deliberate quit stays quit.
+    /// </summary>
+    public static string QuitMarkerPath => Path.Combine(StateDir, "user-quit.flag");
+
+    public static void MarkUserQuit()
+    {
+        try { File.WriteAllText(QuitMarkerPath, DateTime.Now.ToString("O")); } catch { }
+    }
+
+    public static void ClearUserQuit()
+    {
+        try { File.Delete(QuitMarkerPath); } catch { }
+    }
+
+    /// <summary>
+    /// One line per lifecycle event in %APPDATA%\WinSnipper\session.log. This is
+    /// what turns "it disappeared again" into a timestamp and a reason: a run
+    /// that ends without an "exit" line was killed or crashed hard.
+    /// </summary>
+    public static void LogSession(string message)
+    {
+        try
+        {
+            string path = Path.Combine(StateDir, "session.log");
+            if (File.Exists(path) && new FileInfo(path).Length > 256_000)
+                File.Delete(path);
+            File.AppendAllText(path,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] pid={Environment.ProcessId} {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // logging must never take the app down with it
         }
     }
 

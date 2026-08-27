@@ -49,6 +49,16 @@ public partial class App : Application
             }
         }
 
+        // The keep-alive scheduled task launches us with --watchdog every few
+        // minutes. If the user quit on purpose we stay down; otherwise fall
+        // through and let the single-instance mutex below decide — a live
+        // instance makes this launch a no-op, a dead one gets replaced.
+        if (e.Args.Contains("--watchdog") && File.Exists(Util.QuitMarkerPath))
+        {
+            Shutdown(0);
+            return;
+        }
+
         // Only the instance that actually owns the mutex may release it — the
         // loser used to keep the handle and throw an unhandled
         // ApplicationException out of OnExit on every double-launch.
@@ -61,13 +71,18 @@ public partial class App : Application
         }
         _mutex = mutex;
 
+        // A run that never logs a matching "exit" line was killed or crashed
+        // hard; that difference is the whole point of session.log.
+        Util.ClearUserQuit();
+        Util.LogSession($"startup version={Util.AppVersion} exe={Environment.ProcessPath}");
+
         InstallCrashHandlers();
 
         _tray = new TrayIcon(
             onNewSnip: () => SnipFromMenu(),
             onNewRecording: () => RecordFromMenu(),
             onSettings: ShowSettings,
-            onExit: Shutdown);
+            onExit: QuitFromTray);
         _recordings.OnError = msg => _tray?.ShowError(msg);
         _recordings.OnInfo = msg => _tray?.ShowInfo(msg);
 
@@ -100,7 +115,15 @@ public partial class App : Application
         };
         // Background/finalizer exceptions: at least leave a trace before dying.
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
             Util.LogCrash("AppDomain", e.ExceptionObject as Exception ?? new Exception(e.ExceptionObject?.ToString()));
+            Util.LogSession("exit reason=unhandled-exception");
+        };
+        // Logoff/shutdown: just record it. No quit marker — the watchdog only
+        // runs while someone is logged on, and a stale marker would suppress
+        // the next logon's start.
+        SessionEnding += (_, e) =>
+            Util.LogSession($"exit reason=session-ending ({e.ReasonSessionEnding})");
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
             Util.LogCrash("Task", e.Exception);
@@ -225,6 +248,14 @@ public partial class App : Application
         _settings.Activate();
     }
 
+    /// <summary>Tray "Exit" — a deliberate quit, so the watchdog leaves it down.</summary>
+    private void QuitFromTray()
+    {
+        Util.MarkUserQuit();
+        Util.LogSession("exit reason=tray-exit");
+        Shutdown();
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         // Don't leave a truncated MP4 behind if we quit mid-recording.
@@ -232,6 +263,11 @@ public partial class App : Application
             try { _recordings.StopAsync().Wait(TimeSpan.FromSeconds(5)); } catch { }
         _hook?.Dispose();
         _tray?.Dispose();
+        // Only a run that actually started logs an exit, so a "startup" line
+        // with no "exit" after it always means killed or crashed. Watchdog and
+        // second-instance launches never claimed the mutex and stay silent.
+        if (_mutex is not null)
+            Util.LogSession($"exit code={e.ApplicationExitCode}");
         try { _mutex?.ReleaseMutex(); } catch { /* never let shutdown throw */ }
         _mutex?.Dispose();
         base.OnExit(e);
