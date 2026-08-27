@@ -31,11 +31,10 @@ Two flavors:
 Both need the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
 Tick *Start with Windows* in Settings if it earns a permanent spot.
 
-Or via winget (submission pending review):
-
-```powershell
-winget install winsnipper
-```
+**Not on winget yet.** The submission ([winget-pkgs#386835](https://github.com/microsoft/winget-pkgs/pull/386835))
+passed validation but was auto-closed as stale on 2026-06-26: the Microsoft CLA
+was never signed, so the bot kept it blocked. Manifests for the current version
+live in `packaging/winget/` and are ready to resubmit once that's done.
 
 ### 🤖 Install via an AI agent
 
