@@ -50,6 +50,37 @@ Capture ladder at runtime: **WGC → Desktop Duplication → GDI**, chosen per
 recording, falling down a rung on any failure (spanning regions, rotated
 displays, RDP, device loss mid-recording).
 
+## Process lifecycle and supervision
+
+WinSnipper has no main window, so a dead process looks exactly like a working
+one until you press the hotkey. Three pieces make that state visible and
+self-correcting.
+
+| Piece | Where | What it does |
+|---|---|---|
+| Single-instance mutex | `App.OnStartup` | `WinSnipper_SingleInstance`. Only the instance that *claims* it may release it; a losing launch disposes the handle and exits before touching anything else. |
+| `--watchdog` | `App.OnStartup` | Entry point for the keep-alive task. Exits immediately if `user-quit.flag` exists; otherwise falls through to the mutex, which turns the launch into a no-op or a relaunch. |
+| `WinSnipper Keep-Alive` | Scheduled task, installed by `tools\winsnipper.ps1` | Runs the exe with `--watchdog` at logon and every 2 minutes. `MultipleInstances=IgnoreNew` + `ExecutionTimeLimit=0` means Task Scheduler counts the running exe as the task, so the ticks are free while the app is alive. |
+
+The exit-reason ladder, most to least graceful, all recorded in
+`%APPDATA%\WinSnipper\session.log`:
+
+| Reason | Marker written? | Watchdog relaunches? |
+|---|---|---|
+| Tray *Exit* (`QuitFromTray`) | yes | no — deliberate quit stays quit |
+| `winsnipper.ps1 stop` | yes | no |
+| `SessionEnding` (logoff/shutdown) | **no** | n/a — nobody is logged on to run it |
+| Unhandled background exception | no | yes |
+| Killed, or a hard crash (`AccessViolation` out of COM interop, which no managed handler can catch) | no | yes, within 2 min |
+
+Only a run that claimed the mutex writes a `startup` line, and only a clean
+shutdown writes the matching `exit`. **A `startup` with no `exit` after it was
+killed or crashed hard** — that asymmetry is the whole diagnostic.
+
+`SessionEnding` deliberately does *not* write the quit marker. It looks
+symmetric with the other deliberate exits and is wrong: the marker would
+survive the reboot and suppress the next logon's start.
+
 ## Decisions worth knowing
 
 - **Hotkey override**: `RegisterHotKey` cannot claim Win+Shift+S (the shell owns
@@ -76,6 +107,11 @@ displays, RDP, device loss mid-recording).
   duration, not from the timestamps you write — the encoder MFT re-stamps
   them. CFR with duplicate-fill is the only reliable way to keep wall-clock
   time.
+- **Supervision lives outside the process, not inside it.** An in-app watchdog
+  cannot restart an app that took an `AccessViolationException` — the process
+  is already gone. The relauncher has to be something the OS owns, hence the
+  scheduled task; the app's only job is to honour the quit marker so the task
+  doesn't fight a deliberate exit.
 - **Verify interop GUIDs against the SDK headers** (`%ProgramFiles(x86)%\
   Windows Kits\10\Include\...\um\*.h`) — wrong GUIDs fail as `E_INVALIDARG`
   / `E_NOTIMPL` at runtime with no other clue.

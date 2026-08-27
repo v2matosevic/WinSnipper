@@ -1,6 +1,6 @@
 ﻿# Changelog
 
-## Unreleased
+## 0.6.3 — 2026-08-27
 
 - **A keep-alive task brings WinSnipper back if it dies.** It is a tray app with
   no window, and the Run key only fires at logon — so anything that killed it
