@@ -123,37 +123,48 @@ function Invoke-Build {
     $which = if ($Flavor) { $Flavor } else {
         if (Test-Path (Join-Path $DistDir 'WinSnipper-OCR.exe')) { 'ocr' } else { 'lite' }
     }
-    $wasRunning = [bool](Get-AppProcess)
+    $wasRunning  = [bool](Get-AppProcess)
+    $wasQuitFlag = Test-Path $QuitFlag
+
+    # The keep-alive has to stand down for the whole publish, or a tick lands
+    # mid-build, relaunches the app and locks the exe we're about to replace.
+    New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+    Set-Content -Path $QuitFlag -Value (Get-Date -Format o)
     if ($wasRunning) {
         Write-Step 'Stopping the running instance so the exe can be replaced.'
         Invoke-Stop -Deliberate:$false
     }
 
-    $csproj = Join-Path $Root 'WinSnipper.csproj'
-    $targets = @()
-    if ($which -in 'lite', 'both') { $targets += @{ Ocr = $false; Sub = 'lite'; Out = 'WinSnipper.exe' } }
-    if ($which -in 'ocr',  'both') { $targets += @{ Ocr = $true;  Sub = 'ocr';  Out = 'WinSnipper-OCR.exe' } }
+    try {
+        $csproj = Join-Path $Root 'WinSnipper.csproj'
+        $targets = @()
+        if ($which -in 'lite', 'both') { $targets += @{ Ocr = $false; Sub = 'lite'; Out = 'WinSnipper.exe' } }
+        if ($which -in 'ocr',  'both') { $targets += @{ Ocr = $true;  Sub = 'ocr';  Out = 'WinSnipper-OCR.exe' } }
 
-    foreach ($t in $targets) {
-        $stage = Join-Path $DistDir $t.Sub
-        Write-Step "Publishing $($t.Sub) flavor..."
-        $args = @(
-            'publish', $csproj,
-            '-c', 'Release',
-            '-r', 'win-x64',
-            '--self-contained', 'false',
-            '-p:PublishSingleFile=true',
-            "-p:EnableOcr=$($t.Ocr.ToString().ToLower())",
-            '-o', $stage,
-            '-v', 'quiet', '--nologo'
-        )
-        & dotnet @args
-        if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for the $($t.Sub) flavor." }
-        Copy-Item (Join-Path $stage 'WinSnipper.exe') (Join-Path $DistDir $t.Out) -Force
-        Write-Ok "dist\$($t.Out)"
+        foreach ($t in $targets) {
+            $stage = Join-Path $DistDir $t.Sub
+            Write-Step "Publishing $($t.Sub) flavor..."
+            $args = @(
+                'publish', $csproj,
+                '-c', 'Release',
+                '-r', 'win-x64',
+                '--self-contained', 'false',
+                '-p:PublishSingleFile=true',
+                "-p:EnableOcr=$($t.Ocr.ToString().ToLower())",
+                '-o', $stage,
+                '-v', 'quiet', '--nologo'
+            )
+            & dotnet @args
+            if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for the $($t.Sub) flavor." }
+            Copy-Item (Join-Path $stage 'WinSnipper.exe') (Join-Path $DistDir $t.Out) -Force
+            Write-Ok "dist\$($t.Out)"
+        }
     }
-
-    if ($wasRunning) { Invoke-Start }
+    finally {
+        # Invoke-Start clears the flag itself; otherwise put it back as it was.
+        if ($wasRunning) { Invoke-Start }
+        elseif (-not $wasQuitFlag) { Remove-Item $QuitFlag -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Install-KeepAlive {
