@@ -1,18 +1,9 @@
 ﻿# Changelog
 
-## Unreleased
+## 0.7.0 — 2026-09-11
 
-- Faster screenshot preparation: copy opaque desktop pixels directly into WPF,
-  removing an intermediate bitmap and alpha conversion. On the tested
-  three-monitor desktop, median preparation time fell from 142.8 ms to
-  101.1 ms (29%). This measures capture preparation, not total opening time.
-- Opening diagnostics: the bounded `session.log` now records keyboard-event
-  age, dispatcher delay, capture preparation, window construction and first
-  render for screenshot/recording selection and thumbnail-to-editor opening.
-  Timing writes run in the background and contain no captured image content.
-- A reproducible capture benchmark verifies pixel ownership, opacity, PNG
-  round-trips and GDI handle stability. See [performance results and testing
-  instructions](docs/PERFORMANCE.md) for measurements and their limits.
+A redesigned editor and trim window, and a faster snip.
+
 - **Redesigned screenshot editor.** One toolbar row with a consistent vector
   icon set (no more mixed symbol glyphs), the active tool in accent blue, and
   single-key tools: R rectangle, A arrow, O ellipse, P pen, T text, N step,
@@ -34,9 +25,19 @@
   dialog.
 - Both windows gained maximize, dark tooltips and scrollbars, and a maximized
   window now stays inside the screen instead of losing its edges.
-
-These changes are available in source. The latest downloadable release remains
-0.6.3; no new release executable has been published for this update.
+- **Faster screenshot preparation**: opaque desktop pixels are copied straight
+  into WPF, without an intermediate bitmap and alpha conversion. On the tested
+  three-monitor desktop, median preparation time fell from 142.8 ms to
+  101.1 ms (29%). This measures capture preparation, not total opening time.
+- Opening diagnostics: the bounded `session.log` now records keyboard-event
+  age, dispatcher delay, capture preparation, window construction and first
+  render for screenshot/recording selection and thumbnail-to-editor opening.
+  Timing writes run in the background and contain no captured image content.
+- For contributors: `tools\measure-capture.ps1` is a reproducible capture
+  benchmark (pixel ownership, opacity, PNG round-trips, GDI handles; see
+  [performance results](docs/PERFORMANCE.md)), and `tools\ui-shots.ps1` renders
+  every editor and trim state to PNGs from an isolated build without opening
+  anything on screen, which is also how the README screenshots are made.
 
 ## 0.6.3 — 2026-08-27
 

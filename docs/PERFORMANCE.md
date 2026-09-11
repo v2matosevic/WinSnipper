@@ -2,8 +2,8 @@
 
 This update addresses reported delays between the capture hotkey and usable
 selection, and adds diagnostics for opening the annotation editor from a
-thumbnail. It is available in source and was tested in a local installation;
-it is not part of a newly published release executable.
+thumbnail. It was tested in a local installation first and shipped in
+[v0.7.0](https://github.com/v2matosevic/WinSnipper/releases/tag/v0.7.0).
 
 ## Implemented
 
@@ -77,7 +77,7 @@ The corresponding real thumbnail click logged construction at 43.4 ms and
 first render at 123.5 ms. The screenshot preceding it logged zero input age,
 1.0 ms dispatcher delay, and 812.0 ms first render after the restart. Both
 flavors passed `--selftest` again after the final instrumentation changes.
-The updated OCR executable is installed in the existing repo `dist` location
-and running. No GitHub release was published. Confidence is high in the
+The updated OCR executable was installed in the existing repo `dist` location
+and running; no GitHub release existed at that point. Confidence is high in the
 measured capture improvement and these accepted interactions; the precise cause
 of every earlier multi-second delay remains unknown.

@@ -1,4 +1,4 @@
-﻿# WinSnipper
+# WinSnipper
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
@@ -13,9 +13,11 @@ coding chats. Replaces the built-in **Win+Shift+S** snip with a tighter flow:
 And the same flow for video: **Win+Shift+D → pick a region/window/screen →
 MP4 → trim → paste as a file.**
 
+![The WinSnipper editor: a dashboard snip with a boxed metric, numbered steps, an arrow with a note, and a pixelated e-mail address](docs/images/editor.png)
+
 Single-file exe. .NET 8 + WPF, no external packages — video encoding is
 hand-rolled Media Foundation interop, capture is Windows.Graphics.Capture /
-DXGI Desktop Duplication. The core app is ~0.3 MB; OCR ships as a separate
+DXGI Desktop Duplication. The core app is under 0.4 MB; OCR ships as a separate
 flavor so the lightweight build stays lightweight.
 
 ## Install
@@ -25,8 +27,8 @@ Two flavors:
 
 | File | Size | What you get |
 |---|---|---|
-| `WinSnipper.exe` | ~0.3 MB | The full flow — snip, record, trim, thumbnail, annotate, redact |
-| `WinSnipper-OCR.exe` | ~25 MB | Everything above + **Copy Text** (Windows OCR) + Windows.Graphics.Capture recording (records hardware-overlay video — browser video playback — that other capture paths show as black) |
+| `WinSnipper.exe` | ~0.4 MB | The full flow — snip, record, trim, thumbnail, annotate, redact |
+| `WinSnipper-OCR.exe` | ~27 MB | Everything above + **Copy Text** (Windows OCR) + Windows.Graphics.Capture recording (records hardware-overlay video — browser video playback — that other capture paths show as black) |
 
 Both need the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
 Tick *Start with Windows* in Settings if it earns a permanent spot.
@@ -103,14 +105,30 @@ killed or crashed hard — that is the signature to look for. Stack traces go to
      browser upload fields, chats, e-mail (plus bitmap data for image-paste targets)
    - right-click → pin / copy / save-as / open / show-in-folder
    - untouched → fades away on its own
-4. The **editor** (frameless, dark, compact): rectangle, freehand, ellipse,
-   arrow, **text**, **numbered step badges** (1→2→3), **redact/pixelate**
-   (hide API keys and secrets before sharing), crop, 7 colors, stroke width,
-   undo/redo, Ctrl+wheel zoom. **Copy Text** runs Windows OCR over the snip and
-   puts the recognized text on the clipboard. **Copy & Close** (Ctrl+Enter)
-   puts the annotated image on the clipboard and exits — no confirmation
-   dialogs, ever. Closing always saves silently and refreshes the clipboard,
-   so what you paste is what you drew.
+4. The **editor** (frameless, dark, one toolbar row): rectangle, arrow,
+   ellipse, freehand, **text**, **numbered step badges** (1→2→3),
+   **redact/pixelate** (hide API keys and secrets before sharing), crop,
+   7 colors, 4 stroke sizes, undo/redo, zoom. The window opens at the size of
+   the snip; on a narrow window the colors and sizes fold behind a color chip.
+   **Copy Text** runs Windows OCR over the snip and puts the recognized text on
+   the clipboard. **Copy & Close** (Ctrl+Enter) puts the annotated image on the
+   clipboard and exits — no confirmation dialogs, ever. Closing always saves
+   silently and refreshes the clipboard, so what you paste is what you drew.
+
+### Editor shortcuts
+
+| Key | Does |
+|---|---|
+| `R` `A` `O` `P` `T` `N` `B` `C` | Rectangle, arrow, ellipse (oval), pen, text, step number, redact (blur), crop |
+| `[` / `]` | Thinner / thicker stroke (also sizes text and step badges) |
+| `Enter` / `Esc` | Apply / cancel a crop; finish / discard a text label |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Ctrl+C` | Copy the annotated image |
+| `Ctrl+Enter` | Copy, save and close |
+| `Ctrl+S` | Save over the snip file |
+| `Ctrl+wheel` | Zoom at the cursor |
+| `Ctrl+Plus` / `Ctrl+Minus` | Zoom in / out |
+| `Ctrl+0` / `Ctrl+1` | Fit to window / actual pixels (100% is pixel-for-pixel at any display scaling) |
 
 ## Screen recording
 
@@ -123,11 +141,14 @@ killed or crashed hard — that is the signature to look for. Stack traces go to
 3. The MP4 is saved to `<snips folder>\Recordings\`, lands on the clipboard
    as a pasteable **file**, and a floating thumbnail appears — click it to
    open the **trim editor**.
-4. Trim: a filmstrip timeline with draggable in/out handles, playhead,
-   time bubble while dragging. Space plays the selection, `[` / `]` set the
-   edges at the playhead, ←/→ step frames. **Save trimmed** writes a
-   frame-accurate `(trimmed)` copy next to the original, **Save as…** asks
-   where to put it, or tick *Replace original*.
+4. Trim: a filmstrip timeline with draggable in/out handles, a playhead and
+   a time bubble while dragging; the readout under it says exactly what you
+   keep. Space plays the selection, `[` / `]` set the edges at the playhead,
+   ←/→ step a frame (Shift: a second). **Save trimmed** writes a
+   frame-accurate `(trimmed)` copy next to the original with its progress in
+   the button, **Save as…** asks where to put it, or tick *Replace original*.
+
+   ![The trim window: a screen recording with the kept range selected on the filmstrip](docs/images/trim.png)
 
 **Choosing where a recording lands.** Recordings file themselves under
 `Recordings\` so a take is never lost to a dismissed dialog. To put one
@@ -230,7 +251,7 @@ Ideas queued up — PRs welcome:
 - [Contributing](CONTRIBUTING.md) — build, smoke test, ground rules
 - [Changelog](CHANGELOG.md)
 - [Performance](docs/PERFORMANCE.md) — capture benchmark, opening timings,
-  diagnostics and verification limits for the unreleased performance update
+  diagnostics and verification limits for the 0.7.0 capture-speed work
 
 ## Credits
 

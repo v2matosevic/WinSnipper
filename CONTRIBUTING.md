@@ -54,6 +54,23 @@ and whether it was the first opening after startup. Review any log before
 sharing it, since lifecycle lines include the executable path.
 See [performance evidence](docs/PERFORMANCE.md) for the recorded results.
 
+For editor or trim-window UI changes, render every state to PNGs:
+
+```powershell
+pwsh -NoProfile -File tools\ui-shots.ps1           # -> artifacts\ui-shots\
+pwsh -NoProfile -File tools\ui-shots.ps1 -Readme   # also refreshes docs\images\
+```
+
+It builds the app into a temp folder, shows the windows far off-screen (never
+activated, never in the taskbar), captures them with `RenderTargetBitmap` and
+exits without closing them, so nothing appears on your desktop, no input is
+sent and the clipboard is untouched. Content is a synthetic dashboard and a
+synthetic screen recording (needs `ffmpeg` on PATH). It drives private members
+by reflection, so a rename in `EditorWindow`/`TrimWindow` means a matching
+edit in the script. Review the PNGs, not the XAML: an unreadable crop outline
+and a theme that crashed startup were both invisible in code and obvious in
+the renders.
+
 ## Code layout
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the component map.
@@ -62,7 +79,9 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the component map.
 
 - One feature per PR, keep the diff tight.
 - UI changes follow the existing design language: dark, frameless, rounded,
-  one accent color, no dialogs that interrupt the flow.
+  one accent color, no dialogs that interrupt the flow. Use the styles and
+  icons in `src/Theme.xaml`; a new icon is a stroke geometry on the 24-unit
+  grid, not a symbol-font glyph.
 - Anything that adds a confirmation prompt to the snip→annotate→paste loop
   will be rejected — frictionlessness is the product.
 - New editor elements must go through the shared undo/redo stack and render
