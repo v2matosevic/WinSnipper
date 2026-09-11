@@ -1,8 +1,10 @@
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using PixelFormat = System.Drawing.Imaging.PixelFormat;
 
 namespace WinSnipper;
 
@@ -32,28 +34,27 @@ public static class ScreenCapture
         int width = vs.Width;
         int height = vs.Height;
 
-        using var bmp = new Bitmap(width, height);
+        using var bmp = new Bitmap(width, height, PixelFormat.Format32bppRgb);
         using (var g = Graphics.FromImage(bmp))
             g.CopyFromScreen(left, top, 0, 0, new System.Drawing.Size(width, height), CopyPixelOperation.SourceCopy);
 
-        IntPtr hBitmap = bmp.GetHbitmap();
+        // Copy the opaque desktop pixels directly into WPF. GetHbitmap adds
+        // another full-screen allocation and an unnecessary alpha conversion.
+        var data = bmp.LockBits(new Rectangle(0, 0, width, height),
+            ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
         try
         {
-            var source = Imaging.CreateBitmapSourceFromHBitmap(
-                hBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            var source = BitmapSource.Create(width, height, 96, 96,
+                PixelFormats.Bgr32, null, data.Scan0, checked(data.Stride * height), data.Stride);
             source.Freeze();
             return (source, new Int32Rect(left, top, width, height));
         }
         finally
         {
-            DeleteObject(hBitmap);
+            bmp.UnlockBits(data);
         }
     }
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
-
-    [DllImport("gdi32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool DeleteObject(IntPtr hObject);
 }

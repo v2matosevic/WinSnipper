@@ -24,25 +24,29 @@ public sealed class RecordingManager
     public Action<string>? OnError;
     public Action<string>? OnInfo;
 
-    public void Toggle()
+    public void Toggle() => Toggle(new PerformanceTrace("record-menu"));
+
+    public void Toggle(PerformanceTrace trace)
     {
         if (_recorder is not null)
         {
+            trace.Finish("stop-requested");
             _ = StopAsync();
             return;
         }
-        StartNew();
+        StartNew(trace);
     }
 
-    private void StartNew()
+    private void StartNew(PerformanceTrace trace)
     {
-        if (_selecting || SnipOverlay.IsOpen) return;
+        if (_selecting || SnipOverlay.IsOpen) { trace.Finish("already-open"); return; }
         _selecting = true;
         try
         {
             // Live overlay — no frozen screenshot, the desktop keeps moving.
             var bounds = ScreenCapture.VirtualScreenBounds();
             var overlay = new SnipOverlay(bounds);
+            trace.TrackWindow(overlay);
             bool? ok = overlay.ShowDialog();
 
             if (ok != true || overlay.SelectionPx is not { Width: > 0, Height: > 0 } sel)
@@ -100,6 +104,7 @@ public sealed class RecordingManager
         }
         finally
         {
+            trace.Finish("finished-before-render");
             _selecting = false;
         }
     }

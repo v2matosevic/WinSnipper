@@ -27,8 +27,8 @@ public sealed class KeyboardHook : IDisposable
     private IntPtr _hookId;
     private bool _disposed;
 
-    public event Action? HotkeyPressed;
-    public event Action? RecordHotkeyPressed;
+    public event Action<uint>? HotkeyPressed;
+    public event Action<uint>? RecordHotkeyPressed;
 
     /// <summary>
     /// While set, every key-down is routed here first (used by the settings
@@ -69,14 +69,14 @@ public sealed class KeyboardHook : IDisposable
                         s.HotkeyVk, s.ModWin, s.ModShift, s.ModCtrl, s.ModAlt))
                 {
                     SuppressStartMenu(s.ModWin);
-                    HotkeyPressed?.Invoke();
+                    HotkeyPressed?.Invoke(data.time);
                     return (IntPtr)1; // swallow
                 }
                 if (Matches(data.vkCode, win, shift, ctrl, alt,
                         s.RecHotkeyVk, s.RecModWin, s.RecModShift, s.RecModCtrl, s.RecModAlt))
                 {
                     SuppressStartMenu(s.RecModWin);
-                    RecordHotkeyPressed?.Invoke();
+                    RecordHotkeyPressed?.Invoke(data.time);
                     return (IntPtr)1;
                 }
             }

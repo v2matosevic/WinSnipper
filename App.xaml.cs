@@ -89,8 +89,8 @@ public partial class App : Application
         try
         {
             _hook = new KeyboardHook();
-            _hook.HotkeyPressed += () => Dispatcher.BeginInvoke(_snips.StartSnip);
-            _hook.RecordHotkeyPressed += () => Dispatcher.BeginInvoke(_recordings.Toggle);
+            _hook.HotkeyPressed += timestamp => QueueCapture("snip", timestamp, _snips.StartSnip);
+            _hook.RecordHotkeyPressed += timestamp => QueueCapture("record", timestamp, _recordings.Toggle);
             StartHookWatchdog();
         }
         catch (Exception ex)
@@ -103,6 +103,17 @@ public partial class App : Application
     }
 
     // ---------- stability ----------
+
+    private void QueueCapture(string operation, uint timestamp, Action<PerformanceTrace> action)
+    {
+        var trace = new PerformanceTrace(operation, timestamp);
+        Dispatcher.BeginInvoke(() =>
+        {
+            trace.Mark("dispatched");
+            try { action(trace); }
+            catch { trace.Finish("failed"); throw; }
+        });
+    }
 
     private void InstallCrashHandlers()
     {

@@ -9,9 +9,11 @@ public sealed class SnipManager
 {
     private bool _active;
 
-    public void StartSnip()
+    public void StartSnip() => StartSnip(new PerformanceTrace("snip-menu"));
+
+    public void StartSnip(PerformanceTrace trace)
     {
-        if (_active || SnipOverlay.IsOpen) return;
+        if (_active || SnipOverlay.IsOpen) { trace.Finish("already-open"); return; }
         _active = true;
         try
         {
@@ -22,14 +24,17 @@ public sealed class SnipManager
             try
             {
                 (shot, bounds) = ScreenCapture.CaptureVirtualScreen();
+                trace.Mark("captured");
             }
             catch
             {
+                trace.Finish("capture-failed");
                 FloatingThumb.SetAllVisible(true);
                 return;
             }
 
             var overlay = new SnipOverlay(shot, bounds);
+            trace.TrackWindow(overlay);
             bool? ok = overlay.ShowDialog();
             FloatingThumb.SetAllVisible(true);
 
@@ -53,6 +58,7 @@ public sealed class SnipManager
         }
         finally
         {
+            trace.Finish("finished-before-render");
             _active = false;
         }
     }

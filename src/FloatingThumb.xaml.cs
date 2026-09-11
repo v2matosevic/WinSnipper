@@ -237,7 +237,9 @@ public partial class FloatingThumb : Window
                 _trim.Activate();
                 return;
             }
+            var trace = new PerformanceTrace("trim-open");
             _trim = new TrimWindow(_path);
+            trace.TrackWindow(_trim);
             _trim.Show();
             _trim.Activate();
             Close();
@@ -248,7 +250,9 @@ public partial class FloatingThumb : Window
             _editor.Activate();
             return;
         }
+        var editorTrace = new PerformanceTrace("editor-open");
         _editor = new EditorWindow(_path, _img);
+        editorTrace.TrackWindow(_editor);
         _editor.Show();
         _editor.Activate();
         Close();
