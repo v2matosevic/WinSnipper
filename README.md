@@ -201,11 +201,12 @@ improves accuracy on terminal-size text.
 
 ```powershell
 dotnet build -c Release                     # dev build (lite)
-dotnet publish -c Release -r win-x64 --self-contained false `
-  /p:PublishSingleFile=true -o dist/lite    # lite single-file exe
-dotnet publish -c Release -r win-x64 --self-contained false `
-  /p:PublishSingleFile=true /p:EnableOcr=true -o dist/ocr   # OCR flavor
+pwsh -File tools\winsnipper.ps1 build -Flavor both  # single-file builds
 ```
+
+Use the build script when publishing into `dist`: it pauses the keep-alive
+watchdog, stops the running app, builds both flavors and restores its running
+state. Publishing there directly can race the watchdog and hit a locked exe.
 
 `tools/gen-icon.ps1` regenerates `assets/icon.ico`.
 
@@ -228,6 +229,8 @@ Ideas queued up — PRs welcome:
 - [Architecture](docs/ARCHITECTURE.md) — component map and the decisions behind it
 - [Contributing](CONTRIBUTING.md) — build, smoke test, ground rules
 - [Changelog](CHANGELOG.md)
+- [Performance](docs/PERFORMANCE.md) — capture benchmark, opening timings,
+  diagnostics and verification limits for the unreleased performance update
 
 ## Credits
 

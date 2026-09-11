@@ -15,11 +15,12 @@ dotnet build -c Release /p:EnableOcr=true    # OCR/WinRT flavor (net8.0-windows1
 Single-file publish (what releases ship):
 
 ```powershell
-dotnet publish -c Release -r win-x64 --self-contained false `
-  /p:PublishSingleFile=true -o dist/lite
-dotnet publish -c Release -r win-x64 --self-contained false `
-  /p:PublishSingleFile=true /p:EnableOcr=true -o dist/ocr
+pwsh -File tools\winsnipper.ps1 build -Flavor both
 ```
+
+Use this script for `dist` builds: it suppresses the keep-alive watchdog while
+replacing the executables and restarts the app if it was running. Direct
+publishing to `dist` can fail when the watchdog relaunches a locked executable.
 
 Smoke test (screenshot + OCR + a 2 s screen recording + a trim round-trip;
 exit code 0 = pass):
@@ -33,6 +34,25 @@ exit code 0 = pass):
 
 Debug helpers: `--trim <file.mp4>` opens the trim editor directly;
 `--thumbdump <file.mp4>` dumps filmstrip frames as PNGs next to the file.
+
+For capture performance changes, run:
+
+```powershell
+pwsh -NoProfile -File tools\measure-capture.ps1
+```
+
+This compares current capture source with the pre-optimization baseline in a
+temporary .NET 8 harness using the app's DPI manifest. It captures the desktop
+in memory, opens no windows, sends no input and saves no screenshots. It checks
+pixel ownership, dimensions, opacity, a crop/PNG round-trip and GDI handles.
+The SDK may restore the harness's framework references. The temporary source
+and build directory remains under the system temp folder for inspection.
+
+The benchmark measures capture preparation only. For a reported opening delay,
+include the relevant `performance` lines from `%APPDATA%\WinSnipper\session.log`
+and whether it was the first opening after startup. Review any log before
+sharing it, since lifecycle lines include the executable path.
+See [performance evidence](docs/PERFORMANCE.md) for the recorded results.
 
 ## Code layout
 

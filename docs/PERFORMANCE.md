@@ -1,7 +1,9 @@
 # Capture latency, 2026-09-11
 
-Marko reported seconds between the capture hotkey and usable selection, plus
-a delay opening the annotation editor from a thumbnail.
+This update addresses reported delays between the capture hotkey and usable
+selection, and adds diagnostics for opening the annotation editor from a
+thumbnail. It is available in source and was tested in a local installation;
+it is not part of a newly published release executable.
 
 ## Implemented
 
@@ -30,7 +32,7 @@ benchmark using the app's PerMonitorV2 manifest. It compares current capture
 source with baseline commit `423b3c2806113d2ace9de687486923b8ae4c80ab`.
 It opens no windows, sends no input, and saves no screenshots.
 
-On this machine, the virtual desktop was 5760 × 1080, origin (-1920, 0),
+On the test machine, the virtual desktop was 5760 × 1080, origin (-1920, 0),
 WPF render tier 2. Twelve interleaved warm samples per implementation gave:
 
 | Capture preparation | Baseline | Updated |
@@ -44,10 +46,10 @@ context and are not the primary comparison.
 
 The benchmark verified frozen pixel ownership after GDI disposal, capture
 dimensions, opaque alpha, crop/PNG pixel round-trip, and unchanged GDI handle
-count (5 before and after 24 captures). Both published flavors passed the
+count (5 before and after 24 captures). Both locally built flavors passed the
 existing `--selftest` screenshot/OCR/recording/trim round-trip (exit 0).
 
-Marko tested the installed build and reported "Noticeably faster now" for the
+The reporter tested the installed build and confirmed noticeably faster
 hotkey selection (2026-09-11). Its real interaction logs showed:
 
 | Operation | Capture | Constructed | First render |
@@ -63,14 +65,14 @@ stall. The first window still has a measurable initialization cost. Editor
 timings are collected separately from the thumbnail click; the capture change
 does not by itself establish an editor-opening improvement.
 
-The concurrent editor-UI agent reported an isolated offscreen Release OCR
+An independent editor-UI investigation reported an isolated offscreen Release OCR
 harness result with a 1280 × 760 image: first editor construction 152 ms and
 first render 414 ms; next two constructions 14/7 ms and renders 77/62 ms.
-This is peer-reported harness evidence, not a timing of Marko's thumbnail click.
+This is a separately reported harness result, not a real thumbnail-click timing.
 It did not reproduce a multi-second editor delay. No speculative preloading or
 publish-format change was added on that evidence.
 
-After the final local build, Marko also confirmed "Editor opens quickly now".
+After the final local build, the reporter also confirmed the editor opened quickly.
 The corresponding real thumbnail click logged construction at 43.4 ms and
 first render at 123.5 ms. The screenshot preceding it logged zero input age,
 1.0 ms dispatcher delay, and 812.0 ms first render after the restart. Both
