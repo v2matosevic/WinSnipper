@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: v2matosevic.WinSnipper
-PackageVersion: 0.6.3
+PackageVersion: 0.7.0
 PackageLocale: en-US
 Publisher: Marko Matošević
 PublisherUrl: https://github.com/v2matosevic
@@ -18,7 +18,8 @@ Description: |-
   redact/pixelate, crop) or drag it straight into any app as a file.
   No confirmation dialogs anywhere - closing the editor saves silently and
   refreshes the clipboard. Built for fast feedback loops, especially pasting
-  annotated screenshots into AI coding chats.
+  annotated screenshots into AI coding chats. Also records the screen to MP4
+  and trims recordings frame-accurately.
 Moniker: winsnipper
 Tags:
 - annotation
@@ -29,6 +30,6 @@ Tags:
 - screenshot
 - snip
 - snipping-tool
-ReleaseNotesUrl: https://github.com/v2matosevic/WinSnipper/releases/tag/v0.6.3
+ReleaseNotesUrl: https://github.com/v2matosevic/WinSnipper/releases/tag/v0.7.0
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
