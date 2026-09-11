@@ -13,6 +13,27 @@
 - A reproducible capture benchmark verifies pixel ownership, opacity, PNG
   round-trips and GDI handle stability. See [performance results and testing
   instructions](docs/PERFORMANCE.md) for measurements and their limits.
+- **Redesigned screenshot editor.** One toolbar row with a consistent vector
+  icon set (no more mixed symbol glyphs), the active tool in accent blue, and
+  single-key tools: R rectangle, A arrow, O ellipse, P pen, T text, N step,
+  B redact, C crop. Stroke size is four presets (`[` / `]` step through them).
+  Colours and sizes sit inline on wide windows and fold behind a colour chip on
+  narrow ones, so a small snip opens in a small window instead of a 1180 px
+  one. The window is sized for the display's scaling, the snip gets a hairline
+  edge so dark screenshots no longer vanish into the dark canvas, and the
+  status bar has zoom controls (Ctrl+0 fit, Ctrl+1 actual pixels, Ctrl+wheel
+  zooms at the cursor). "100%" now means pixel-for-pixel on any scaling.
+- **Crop no longer shrinks with zoom.** On a big multi-monitor snip the Crop /
+  Cancel pill and the selection outline used to scale down with the image
+  until they were barely usable; they now stay a fixed size, the outline reads
+  on light and dark snips, and the pill shows the crop size.
+- **Redesigned trim window.** Play button beside the filmstrip, handles inside
+  the kept range with no jump on grab, a time bubble above the strip while
+  dragging, a "Keeping 0:02.4 – 0:08.7 · 6.3 s" readout, shortcut key hints,
+  progress in the Save button, and trim errors shown inline instead of in a
+  dialog.
+- Both windows gained maximize, dark tooltips and scrollbars, and a maximized
+  window now stays inside the screen instead of losing its edges.
 
 These changes are available in source. The latest downloadable release remains
 0.6.3; no new release executable has been published for this update.

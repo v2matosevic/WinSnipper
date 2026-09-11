@@ -2,99 +2,42 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="WinSnipper"
-        Background="#FF1E1F24"
+        Background="{StaticResource Ws.Canvas}"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
-        MinWidth="1180" MinHeight="600"
-        FontFamily="Segoe UI Variable Text, Segoe UI"
+        MinWidth="860" MinHeight="420"
+        FontFamily="{StaticResource Ws.Font}"
         TextOptions.TextFormattingMode="Display">
     <WindowChrome.WindowChrome>
-        <WindowChrome CaptionHeight="42" ResizeBorderThickness="6"
+        <WindowChrome CaptionHeight="48" ResizeBorderThickness="6"
                       GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
     <Window.Resources>
-        <SolidColorBrush x:Key="BarBg" Color="#FF24252B"/>
-        <SolidColorBrush x:Key="GroupBg" Color="#FF2E2F36"/>
-        <SolidColorBrush x:Key="BtnHover" Color="#FF3C3E48"/>
-        <SolidColorBrush x:Key="AccentBg" Color="#FF3478F6"/>
-        <SolidColorBrush x:Key="AccentHover" Color="#FF4A89F8"/>
-        <SolidColorBrush x:Key="TextFg" Color="#FFE8EAEE"/>
-        <SolidColorBrush x:Key="TextDim" Color="#FF9AA0A8"/>
+        <Style TargetType="ToolTip" BasedOn="{StaticResource Ws.ToolTip}"/>
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource Ws.ScrollBar}"/>
 
-        <Style x:Key="ToolBtn" TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource TextFg}"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Padding" Value="12,6"/>
-            <Setter Property="Margin" Value="2,0"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="B" Background="{TemplateBinding Background}" CornerRadius="7"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="B" Property="Background" Value="{StaticResource BtnHover}"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.35"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="AccentBtn" TargetType="Button" BasedOn="{StaticResource ToolBtn}">
-            <Setter Property="Background" Value="{StaticResource AccentBg}"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="14,6"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="B" Background="{TemplateBinding Background}" CornerRadius="7"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="B" Property="Background" Value="{StaticResource AccentHover}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Mac-like segmented control toggle -->
-        <Style x:Key="ToolToggle" TargetType="ToggleButton">
-            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
-            <Setter Property="Padding" Value="13,5"/>
+        <!-- colour swatch / stroke size: a round hit target with a selection ring -->
+        <Style x:Key="StyleOption" TargetType="RadioButton">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
             <Setter Property="Margin" Value="1,0"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="ToggleButton">
-                        <Border x:Name="B" Background="Transparent" CornerRadius="6"
-                                Padding="{TemplateBinding Padding}">
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid Background="Transparent">
+                            <Ellipse x:Name="Ring" Stroke="{StaticResource Ws.Text}" StrokeThickness="2" Opacity="0"/>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="B" Property="Background" Value="#FF36383F"/>
-                                <Setter Property="Foreground" Value="{StaticResource TextFg}"/>
+                                <Setter TargetName="Ring" Property="Opacity" Value="0.35"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="B" Property="Background" Value="#FF4B4E59"/>
-                                <Setter Property="Foreground" Value="White"/>
+                                <Setter TargetName="Ring" Property="Opacity" Value="1"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -102,40 +45,51 @@
             </Setter>
         </Style>
 
-        <!-- window caption buttons -->
-        <Style x:Key="CaptionBtn" TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
-            <Setter Property="Width" Value="44"/>
+        <!-- stroke size: a line-weight bar, highlighted when selected -->
+        <Style x:Key="SizeOption" TargetType="RadioButton">
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Margin" Value="1,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="B" Background="Transparent" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="B" Property="Background" Value="{StaticResource Ws.Hover}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="B" Property="Background" Value="#33FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- colour chip that opens the style flyout when the bar is too narrow for it inline -->
+        <Style x:Key="StyleChipBtn" TargetType="Button">
             <Setter Property="Height" Value="32"/>
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="8,0,4,0"/>
+            <Setter Property="Foreground" Value="{StaticResource Ws.TextDim}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Focusable" Value="False"/>
             <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="B" Background="Transparent" CornerRadius="6">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Border x:Name="B" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="B" Property="Background" Value="#26FFFFFF"/>
-                                <Setter Property="Foreground" Value="White"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="CaptionCloseBtn" TargetType="Button" BasedOn="{StaticResource CaptionBtn}">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="B" Background="Transparent" CornerRadius="6">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="B" Property="Background" Value="#E6D64545"/>
-                                <Setter Property="Foreground" Value="White"/>
+                                <Setter TargetName="B" Property="Background" Value="{StaticResource Ws.Hover}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Ws.Text}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -143,166 +97,195 @@
             </Setter>
         </Style>
 
-        <!-- minimal slider -->
-        <Style x:Key="SliderRepeat" TargetType="RepeatButton">
-            <Setter Property="IsTabStop" Value="False"/>
-            <Setter Property="Focusable" Value="False"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="RepeatButton">
-                        <Border Background="Transparent"/>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="MinimalSlider" TargetType="Slider">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Slider">
-                        <Grid VerticalAlignment="Center" Height="18">
-                            <Border Height="4" CornerRadius="2" Background="#FF3C3E48" VerticalAlignment="Center"/>
-                            <Track x:Name="PART_Track">
-                                <Track.DecreaseRepeatButton>
-                                    <RepeatButton Style="{StaticResource SliderRepeat}" Command="Slider.DecreaseLarge"/>
-                                </Track.DecreaseRepeatButton>
-                                <Track.IncreaseRepeatButton>
-                                    <RepeatButton Style="{StaticResource SliderRepeat}" Command="Slider.IncreaseLarge"/>
-                                </Track.IncreaseRepeatButton>
-                                <Track.Thumb>
-                                    <Thumb Width="14" Height="14" Focusable="False">
-                                        <Thumb.Template>
-                                            <ControlTemplate TargetType="Thumb">
-                                                <Ellipse Fill="White" Width="14" Height="14"/>
-                                            </ControlTemplate>
-                                        </Thumb.Template>
-                                    </Thumb>
-                                </Track.Thumb>
-                            </Track>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+        <Style x:Key="StatusText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Ws.TextDim}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
     </Window.Resources>
 
-    <DockPanel>
-        <!-- custom title bar (drag area via WindowChrome caption) -->
-        <Grid DockPanel.Dock="Top" Background="{StaticResource BarBg}" Height="42">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="16,0">
-                <Ellipse Width="10" Height="10" Fill="{StaticResource AccentBg}" VerticalAlignment="Center"/>
-                <TextBlock Text="WinSnipper" Foreground="{StaticResource TextDim}" FontSize="12"
-                           FontWeight="SemiBold" Margin="8,0,0,0" VerticalAlignment="Center"/>
-            </StackPanel>
-            <TextBlock x:Name="TitleText" HorizontalAlignment="Center" VerticalAlignment="Center"
-                       Foreground="{StaticResource TextDim}" FontSize="12.5"/>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
-                <Button Style="{StaticResource CaptionBtn}" Content="–" Click="Minimize_Click" ToolTip="Minimize"/>
-                <Button Style="{StaticResource CaptionCloseBtn}" Content="✕" Click="CloseWindow_Click" ToolTip="Close (saves changes)"/>
-            </StackPanel>
-        </Grid>
-
-        <!-- toolbar -->
-        <Border DockPanel.Dock="Top" Background="{StaticResource BarBg}"
-                BorderBrush="#FF141518" BorderThickness="0,0,0,1" Padding="12,4,12,11">
-            <Grid>
+    <DockPanel x:Name="Root">
+        <!-- one bar: tools · style · (drag) · history · output · window -->
+        <Border DockPanel.Dock="Top" Height="49" Background="{StaticResource Ws.Chrome}"
+                BorderBrush="{StaticResource Ws.Edge}" BorderThickness="0,0,0,1">
+            <Grid x:Name="TopBar" SizeChanged="TopBar_SizeChanged">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Background="{StaticResource GroupBg}" CornerRadius="8" Padding="3">
-                        <StackPanel Orientation="Horizontal">
-                            <ToggleButton x:Name="BtnRect" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Rect" Content="▭" FontSize="15" IsChecked="True" ToolTip="Rectangle"/>
-                            <ToggleButton x:Name="BtnPen" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Pen" Content="✏" FontSize="15" ToolTip="Freehand draw"/>
-                            <ToggleButton x:Name="BtnEllipse" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Ellipse" Content="◯" FontSize="15" ToolTip="Ellipse"/>
-                            <ToggleButton x:Name="BtnArrow" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Arrow" Content="↗" FontSize="15" ToolTip="Arrow"/>
-                            <ToggleButton x:Name="BtnText" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Text" Content="T" FontSize="15" FontWeight="Bold"
-                                          ToolTip="Text — click to type, Enter to commit"/>
-                            <ToggleButton x:Name="BtnBadge" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Badge" Content="①" FontSize="15" ToolTip="Step badge — click to drop 1, 2, 3…"/>
-                            <ToggleButton x:Name="BtnPixelate" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Pixelate" Content="▦" FontSize="15"
-                                          ToolTip="Redact — pixelate a region (hide keys / secrets)"/>
-                            <ToggleButton x:Name="BtnCrop" Style="{StaticResource ToolToggle}" Click="Tool_Click"
-                                          Tag="Crop" Content="⬚" FontSize="15" ToolTip="Crop — drag a region, Enter to apply"/>
+                <Border Grid.Column="0" Margin="10,0,0,0" Padding="3" CornerRadius="8" VerticalAlignment="Center"
+                        Background="{StaticResource Ws.Group}">
+                    <StackPanel Orientation="Horizontal">
+                        <ToggleButton x:Name="BtnRect" Style="{StaticResource Ws.Tool}" Click="Tool_Click" Tag="Rect"
+                                      Content="{StaticResource Ico.Rect}" IsChecked="True" ToolTip="Rectangle  (R)"/>
+                        <ToggleButton x:Name="BtnArrow" Style="{StaticResource Ws.Tool}" Click="Tool_Click" Tag="Arrow"
+                                      Content="{StaticResource Ico.Arrow}" ToolTip="Arrow  (A)"/>
+                        <ToggleButton x:Name="BtnEllipse" Style="{StaticResource Ws.Tool}" Click="Tool_Click" Tag="Ellipse"
+                                      Content="{StaticResource Ico.Ellipse}" ToolTip="Ellipse  (O)"/>
+                        <ToggleButton x:Name="BtnPen" Style="{StaticResource Ws.Tool}" Click="Tool_Click" Tag="Pen"
+                                      Content="{StaticResource Ico.Pen}" ToolTip="Freehand  (P)"/>
+                        <ToggleButton x:Name="BtnText" Style="{StaticResource Ws.Tool}" Click="Tool_Click" Tag="Text"
+                                      Content="{StaticResource Ico.Text}" ToolTip="Text  (T): click to type, Enter to finish"/>
+                        <ToggleButton x:Name="BtnBadge" Style="{StaticResource Ws.Tool}" Click="Tool_Click" Tag="Badge"
+                                      Content="{StaticResource Ico.Step}" ToolTip="Step number  (N): click to drop 1, 2, 3…"/>
+                        <ToggleButton x:Name="BtnPixelate" Style="{StaticResource Ws.Tool}" Click="Tool_Click" Tag="Pixelate"
+                                      Content="{StaticResource Ico.Redact}" ToolTip="Redact  (B): pixelate keys, emails, secrets"/>
+                        <Rectangle Style="{StaticResource Ws.Divider}" Height="16" Margin="4,0"/>
+                        <ToggleButton x:Name="BtnCrop" Style="{StaticResource Ws.Tool}" Click="Tool_Click" Tag="Crop"
+                                      Content="{StaticResource Ico.Crop}" ToolTip="Crop  (C): drag a region, Enter to apply"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- colour + stroke size: inline when there is room, otherwise behind a chip -->
+                <Grid Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                    <Border x:Name="InlineStyleHost">
+                        <StackPanel x:Name="StylePanel" Orientation="Horizontal">
+                            <StackPanel x:Name="ColorsPanel" Orientation="Horizontal"/>
+                            <Rectangle Style="{StaticResource Ws.Divider}" Height="16" Margin="7,0"/>
+                            <StackPanel x:Name="SizesPanel" Orientation="Horizontal"/>
                         </StackPanel>
                     </Border>
+                    <Button x:Name="StyleChip" Style="{StaticResource StyleChipBtn}" Visibility="Collapsed"
+                            Click="StyleChip_Click" ToolTip="Colour and stroke size  ([ and ] change the size)">
+                        <StackPanel Orientation="Horizontal">
+                            <Grid Width="20" Height="20">
+                                <Ellipse x:Name="ChipDot" Fill="Red"/>
+                                <Ellipse Stroke="#33FFFFFF" StrokeThickness="1"/>
+                            </Grid>
+                            <ContentControl Style="{StaticResource Icon}" Content="{StaticResource Ico.Chevron}"
+                                            Width="16" Height="16" Margin="3,0,0,0"/>
+                        </StackPanel>
+                    </Button>
+                    <Popup x:Name="StylePopup" PlacementTarget="{Binding ElementName=StyleChip}" Placement="Bottom"
+                           VerticalOffset="-4" HorizontalOffset="-12"
+                           StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                        <Border Style="{StaticResource Ws.Flyout}">
+                            <Border x:Name="FlyoutStyleHost"/>
+                        </Border>
+                    </Popup>
+                </Grid>
 
-                    <StackPanel x:Name="ColorsPanel" Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0"/>
-                    <Slider x:Name="ThicknessSlider" Style="{StaticResource MinimalSlider}" Width="96"
-                            Minimum="1" Maximum="16" Value="3"
-                            VerticalAlignment="Center" Margin="16,0,0,0"
-                            IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="Stroke thickness"/>
-                    <TextBlock x:Name="ThicknessLabel" Text="3" Foreground="{StaticResource TextDim}" Width="22"
-                               TextAlignment="Center" VerticalAlignment="Center" FontSize="12"/>
+                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+                    <Button x:Name="BtnUndo" Style="{StaticResource Ws.IconBtn}" Click="Undo_Click"
+                            Content="{StaticResource Ico.Undo}" ToolTip="Undo  (Ctrl+Z)"/>
+                    <Button x:Name="BtnRedo" Style="{StaticResource Ws.IconBtn}" Click="Redo_Click"
+                            Content="{StaticResource Ico.Redo}" ToolTip="Redo  (Ctrl+Y)"/>
+                    <Rectangle Style="{StaticResource Ws.Divider}"/>
+                    <Button x:Name="BtnOcr" Style="{StaticResource Ws.Btn}" Click="Ocr_Click"
+                            Tag="{StaticResource Ico.ScanText}" ToolTip="Copy all the text in the image (OCR) and close">
+                        <TextBlock x:Name="OcrLabel" Text="Copy text"/>
+                    </Button>
+                    <Button Style="{StaticResource Ws.IconBtn}" Click="Save_Click"
+                            Content="{StaticResource Ico.Save}" ToolTip="Save  (Ctrl+S): overwrites the snip file"/>
+                    <Button Style="{StaticResource Ws.IconBtn}" Click="SaveAs_Click"
+                            Content="{StaticResource Ico.SaveAs}" ToolTip="Save a copy somewhere else…"/>
+                    <Button Style="{StaticResource Ws.BtnAccent}" Click="CopyClose_Click" Margin="8,0,0,0"
+                            Tag="{StaticResource Ico.Copy}" Content="Copy &amp; Close"
+                            ToolTip="Copy to the clipboard, save and close  (Ctrl+Enter)"/>
                 </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnUndo" Style="{StaticResource ToolBtn}" Click="Undo_Click"
-                            Content="↶" FontSize="16" Padding="9,3" ToolTip="Undo (Ctrl+Z)"/>
-                    <Button x:Name="BtnRedo" Style="{StaticResource ToolBtn}" Click="Redo_Click"
-                            Content="↷" FontSize="16" Padding="9,3" ToolTip="Redo (Ctrl+Y)"/>
-                    <Rectangle Width="1" Fill="#FF3A3D45" Margin="10,4"/>
-                    <Button x:Name="BtnOcr" Style="{StaticResource ToolBtn}" Click="Ocr_Click" Content="Copy Text"
-                            ToolTip="OCR — copy all readable text in the image to the clipboard"/>
-                    <Button Style="{StaticResource ToolBtn}" Click="Save_Click" Content="&#xE74E;"
-                            FontFamily="Segoe MDL2 Assets" FontSize="15" Padding="9,6"
-                            ToolTip="Save (Ctrl+S) — overwrites the snip file"/>
-                    <Button Style="{StaticResource ToolBtn}" Click="SaveAs_Click" Content="&#xE792;"
-                            FontFamily="Segoe MDL2 Assets" FontSize="15" Padding="9,6"
-                            ToolTip="Save As… — save a copy somewhere else"/>
-                    <Button Style="{StaticResource AccentBtn}" Click="CopyClose_Click" Content="Copy &amp; Close"
-                            Margin="10,0,0,0" ToolTip="Copy to clipboard, save, and close (Ctrl+Enter)"/>
+                <StackPanel Grid.Column="4" Orientation="Horizontal">
+                    <Button Style="{StaticResource Ws.Caption}" Content="&#xE921;" ToolTip="Minimize"
+                            Command="{x:Static SystemCommands.MinimizeWindowCommand}"/>
+                    <Button Style="{StaticResource Ws.CaptionMax}"
+                            Command="{x:Static SystemCommands.MaximizeWindowCommand}"/>
+                    <Button Style="{StaticResource Ws.CaptionClose}" ToolTip="Close (saves your changes)"
+                            Command="{x:Static SystemCommands.CloseWindowCommand}"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- status bar -->
-        <Border DockPanel.Dock="Bottom" Background="{StaticResource BarBg}"
-                BorderBrush="#FF141518" BorderThickness="0,1,0,0" Padding="14,5">
+        <!-- status: what this is on the left, how you're looking at it on the right -->
+        <Border DockPanel.Dock="Bottom" Height="33" Background="{StaticResource Ws.Chrome}"
+                BorderBrush="{StaticResource Ws.Edge}" BorderThickness="0,1,0,0" Padding="14,0,6,0">
             <DockPanel>
-                <TextBlock x:Name="StatusZoom" DockPanel.Dock="Right" Foreground="{StaticResource TextDim}"
-                           FontSize="12" ToolTip="Ctrl+Mouse wheel to zoom"/>
-                <TextBlock x:Name="StatusSize" Foreground="{StaticResource TextDim}" FontSize="12"/>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource Ws.IconBtn}" Width="26" Height="26" Padding="6"
+                            Content="{StaticResource Ico.Minus}" Click="ZoomOut_Click" ToolTip="Zoom out  (Ctrl+−)"/>
+                    <Button x:Name="ZoomBtn" Style="{StaticResource Ws.Btn}" Height="26" Padding="6,0" MinWidth="50"
+                            FontSize="12" Foreground="{StaticResource Ws.TextDim}" Click="ZoomToggle_Click"
+                            ToolTip="Switch between fit and actual pixels  (Ctrl+0 / Ctrl+1)">
+                        <TextBlock x:Name="StatusZoom" Text="100%"/>
+                    </Button>
+                    <Button Style="{StaticResource Ws.IconBtn}" Width="26" Height="26" Padding="6"
+                            Content="{StaticResource Ico.Plus}" Click="ZoomIn_Click" ToolTip="Zoom in  (Ctrl++)"/>
+                    <Rectangle Style="{StaticResource Ws.Divider}" Height="14" Margin="6,0"/>
+                    <Button x:Name="FitBtn" Style="{StaticResource Ws.IconBtn}" Width="26" Height="26" Padding="6"
+                            Content="{StaticResource Ico.Fit}" Click="ZoomFit_Click" ToolTip="Fit to window  (Ctrl+0)"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="FileNameText" Style="{StaticResource StatusText}" Foreground="{StaticResource Ws.Text}"
+                               MaxWidth="360" TextTrimming="CharacterEllipsis"/>
+                    <Border x:Name="EditedPill" Visibility="Collapsed" Margin="8,0,0,0" Padding="6,1,7,2"
+                            CornerRadius="4" Background="#263478F6" VerticalAlignment="Center">
+                        <TextBlock Text="Edited" FontSize="11" Foreground="#FF8DB4FF"/>
+                    </Border>
+                    <TextBlock Style="{StaticResource StatusText}" Text="·" Margin="10,0" Foreground="{StaticResource Ws.TextFaint}"/>
+                    <TextBlock x:Name="StatusSize" Style="{StaticResource StatusText}"/>
+                    <TextBlock x:Name="StatusMsg" Style="{StaticResource StatusText}" Margin="14,0,0,0"
+                               Foreground="#FFE8B45A" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
             </DockPanel>
         </Border>
 
         <!-- canvas -->
-        <ScrollViewer x:Name="Scroller" Background="#FF17181C"
+        <ScrollViewer x:Name="Scroller" Background="{StaticResource Ws.Canvas}"
                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                       Focusable="False"
-                      PreviewMouseWheel="Scroller_PreviewMouseWheel">
-            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
-                <Border.LayoutTransform>
-                    <ScaleTransform x:Name="ZoomTf" ScaleX="1" ScaleY="1"/>
-                </Border.LayoutTransform>
-                <Grid x:Name="Surface" ClipToBounds="True">
-                    <Image x:Name="BaseImage" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
-                    <Canvas x:Name="Ink" Background="Transparent" Cursor="Cross"
-                            MouseLeftButtonDown="Ink_Down" MouseMove="Ink_Move" MouseLeftButtonUp="Ink_Up"/>
-                    <Canvas x:Name="CropLayer" Background="{x:Null}" Visibility="Collapsed">
-                        <Path x:Name="CropDim" Fill="#77000000" IsHitTestVisible="False"/>
-                        <Rectangle x:Name="CropSel" Stroke="White" StrokeThickness="1.5"
-                                   StrokeDashArray="5 3" IsHitTestVisible="False" Visibility="Collapsed"/>
-                        <Border x:Name="CropActions" Background="#F0222329" CornerRadius="8" Padding="4"
-                                Visibility="Collapsed">
-                            <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource AccentBtn}" Click="CropApply_Click"
-                                        Content="✔ Crop" ToolTip="Apply crop (Enter)"/>
-                                <Button Style="{StaticResource ToolBtn}" Click="CropCancel_Click"
-                                        Content="✕" ToolTip="Cancel crop (Esc)"/>
-                            </StackPanel>
-                        </Border>
-                    </Canvas>
-                </Grid>
-            </Border>
+                      PreviewMouseWheel="Scroller_PreviewMouseWheel"
+                      SizeChanged="Scroller_SizeChanged">
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Margin="28">
+                <Border>
+                    <Border.LayoutTransform>
+                        <ScaleTransform x:Name="ZoomTf" ScaleX="1" ScaleY="1"/>
+                    </Border.LayoutTransform>
+                    <Grid x:Name="Surface" ClipToBounds="True">
+                        <Image x:Name="BaseImage" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        <Canvas x:Name="Ink" Background="Transparent" Cursor="Cross"
+                                MouseLeftButtonDown="Ink_Down" MouseMove="Ink_Move" MouseLeftButtonUp="Ink_Up"/>
+                        <Canvas x:Name="CropLayer" Background="{x:Null}" Visibility="Collapsed">
+                            <Path x:Name="CropDim" Fill="#99000000" IsHitTestVisible="False"/>
+                            <!-- white lines on a dark halo, so the selection reads on light and dark snips alike -->
+                            <Rectangle x:Name="CropSelHalo" Stroke="#8C000000"
+                                       IsHitTestVisible="False" Visibility="{Binding Visibility, ElementName=CropSel}"/>
+                            <Rectangle x:Name="CropSel" Stroke="White" StrokeThickness="1.5"
+                                       IsHitTestVisible="False" Visibility="Collapsed"/>
+                            <Path x:Name="CropCornersHalo" Stroke="#8C000000"
+                                  StrokeStartLineCap="Square" StrokeEndLineCap="Square"
+                                  IsHitTestVisible="False"/>
+                            <Path x:Name="CropCorners" Stroke="White"
+                                  StrokeStartLineCap="Square" StrokeEndLineCap="Square"
+                                  IsHitTestVisible="False"/>
+                        </Canvas>
+                    </Grid>
+                </Border>
+                <!-- Hairline outside the zoomed surface: stays 1px at any zoom, never
+                     reaches the export, and is what separates a dark snip from the
+                     dark canvas. -->
+                <Border Margin="-1" BorderBrush="{StaticResource Ws.Hairline}" BorderThickness="1" IsHitTestVisible="False"/>
+
+                <!-- Unzoomed overlay in screen units: the crop pill keeps its size at any
+                     zoom and is never clipped by a small image. -->
+                <Canvas x:Name="Overlay">
+                    <Border x:Name="CropActions" Background="#F2202126" CornerRadius="8" Padding="4"
+                            BorderBrush="#FF3A3C44" BorderThickness="1" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="CropSizeText" Foreground="{StaticResource Ws.TextDim}" FontSize="12"
+                                       FontFamily="Segoe UI" VerticalAlignment="Center" Margin="8,0,10,0"/>
+                            <Button Style="{StaticResource Ws.BtnAccent}" Click="CropApply_Click" Height="28"
+                                    Padding="9,0,11,0" Tag="{StaticResource Ico.Check}" Content="Crop"
+                                    ToolTip="Apply crop  (Enter)"/>
+                            <Button Style="{StaticResource Ws.IconBtn}" Click="CropCancel_Click" Width="28" Height="28"
+                                    Padding="6" Margin="2,0,0,0" Content="{StaticResource Ico.Close}"
+                                    ToolTip="Cancel  (Esc)"/>
+                        </StackPanel>
+                    </Border>
+                </Canvas>
+            </Grid>
         </ScrollViewer>
     </DockPanel>
 </Window>

@@ -29,12 +29,24 @@ public partial class EditorWindow : Window
         ("White", Color.FromRgb(0xFA, 0xFA, 0xFA)),
     };
 
+    /// <summary>Stroke presets. Text and step badges scale with the same value.</summary>
+    private static readonly (string Name, double Stroke, double Bar)[] Sizes =
+    {
+        ("Thin", 2, 1.5),
+        ("Regular", 3, 2.5),
+        ("Bold", 5, 4),
+        ("Heavy", 9, 6),
+    };
+
     private string _path;
     private BitmapSource _img = null!;
     private Tool _tool = Tool.Rect;
     private Color _color = Palette[0].Color;
-    private readonly List<Border> _swatches = new();
+    private int _sizeIndex = 1;
+    private readonly List<RadioButton> _swatches = new();
+    private readonly List<RadioButton> _sizeOptions = new();
     private ToggleButton[] _toolButtons = null!;
+    private Dictionary<Key, ToggleButton> _toolKeys = null!;
 
     private bool _drawing;
     private Point _start;
@@ -44,62 +56,50 @@ public partial class EditorWindow : Window
     private readonly Stack<UIElement> _redo = new();
     private bool _dirty;
     private Rect? _pendingCrop;
+    private Rect? _cropRect; // what the crop overlay currently shows (dragging or pending)
+
+    private bool _fitMode = true; // follow the window size until the user zooms by hand
+    private bool _compactBar;
+    private double _wideBarWidth;
 
     public event Action<BitmapSource>? ImageSaved;
 
     public EditorWindow(string path, BitmapSource image)
     {
         InitializeComponent();
+        DarkWindow.Attach(this, Root);
         _path = path;
-        _toolButtons = new[] { BtnRect, BtnPen, BtnEllipse, BtnArrow, BtnText, BtnBadge, BtnPixelate, BtnCrop };
+        _toolButtons = new[] { BtnRect, BtnArrow, BtnEllipse, BtnPen, BtnText, BtnBadge, BtnPixelate, BtnCrop };
+        _toolKeys = new()
+        {
+            [Key.R] = BtnRect, [Key.A] = BtnArrow, [Key.O] = BtnEllipse, [Key.P] = BtnPen,
+            [Key.T] = BtnText, [Key.N] = BtnBadge, [Key.B] = BtnPixelate, [Key.C] = BtnCrop,
+        };
 
         SetImage(image);
-        BuildSwatches();
+        BuildStylePanel();
         UpdateTitle();
         UpdateUndoButtons();
         if (!Util.OcrSupported)
             BtnOcr.Visibility = Visibility.Collapsed;
 
-        ThicknessSlider.ValueChanged += (_, e) => ThicknessLabel.Text = ((int)e.NewValue).ToString();
+        // While the flyout is open the chip must not take the click that closes
+        // it, or that same click would reopen it.
+        StylePopup.Opened += (_, _) => StyleChip.IsHitTestVisible = false;
+        StylePopup.Closed += (_, _) => StyleChip.IsHitTestVisible = true;
 
-        // Compact window: wide enough that the full toolbar always fits
-        // (MinWidth), tall enough for the snip, capped to 85% of the work area.
-        var wa = SystemParameters.WorkArea;
-        Width = Math.Clamp(image.PixelWidth + 64, MinWidth, wa.Width * 0.85);
-        Height = Math.Clamp(image.PixelHeight + 220, MinHeight, wa.Height * 0.85);
+        // Size the window to the snip as it will actually appear: native pixels
+        // on the monitor the editor opens on (CenterScreen follows the cursor),
+        // capped to 85% of that monitor's work area.
+        var mon = Monitors.FromCursor();
+        double s = mon.Scale;
+        Width = Math.Clamp(image.PixelWidth / s + 64, MinWidth, Math.Max(MinWidth, mon.Width / s * 0.85));
+        Height = Math.Clamp(image.PixelHeight / s + 146, MinHeight, Math.Max(MinHeight, mon.Height / s * 0.85));
 
         // Once layout settles, fit the snip to the viewport (never above 1:1 pixels).
         Loaded += (_, _) => Dispatcher.BeginInvoke(FitToViewport,
             System.Windows.Threading.DispatcherPriority.Loaded);
     }
-
-    private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
-
-    private void CloseWindow_Click(object sender, RoutedEventArgs e) => Close();
-
-    private void FitToViewport()
-    {
-        double native = 1.0 / VisualTreeHelper.GetDpi(this).DpiScaleX;
-        double vw = Scroller.ViewportWidth - 56;
-        double vh = Scroller.ViewportHeight - 56;
-        double zoom = native;
-        if (vw > 0 && vh > 0 && Surface.Width > 0 && Surface.Height > 0)
-            zoom = Math.Min(native, Math.Min(vw / Surface.Width, vh / Surface.Height));
-        SetZoom(zoom);
-    }
-
-    protected override void OnSourceInitialized(EventArgs e)
-    {
-        base.OnSourceInitialized(e);
-        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        int dark = 1; // DWMWA_USE_IMMERSIVE_DARK_MODE
-        _ = DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int));
-        int round = 2; // DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND
-        _ = DwmSetWindowAttribute(hwnd, 33, ref round, sizeof(int));
-    }
-
-    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
     // ---------- image / layout ----------
 
@@ -112,65 +112,200 @@ public partial class EditorWindow : Window
         StatusSize.Text = $"{image.PixelWidth} × {image.PixelHeight} px";
     }
 
-    private void BuildSwatches()
-    {
-        foreach (var (name, color) in Palette)
-        {
-            var b = new Border
-            {
-                Width = 20,
-                Height = 20,
-                CornerRadius = new CornerRadius(10),
-                Margin = new Thickness(3, 0, 3, 0),
-                Background = new SolidColorBrush(color),
-                BorderThickness = new Thickness(2),
-                BorderBrush = Brushes.Transparent,
-                Cursor = Cursors.Hand,
-                ToolTip = name,
-                Tag = color,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            b.MouseLeftButtonDown += (s, _) => SelectColor((Border)s!);
-            _swatches.Add(b);
-            ColorsPanel.Children.Add(b);
-        }
-        SelectColor(_swatches[0]);
-    }
-
-    private void SelectColor(Border swatch)
-    {
-        foreach (var s in _swatches)
-            s.BorderBrush = Brushes.Transparent;
-        swatch.BorderBrush = Brushes.White;
-        _color = (Color)swatch.Tag;
-    }
-
     private void UpdateTitle()
     {
-        string name = $"{IOPath.GetFileName(_path)}{(_dirty ? " •" : "")}";
-        Title = $"{name} — WinSnipper";
-        TitleText.Text = name;
+        string name = IOPath.GetFileName(_path);
+        Title = $"{name}{(_dirty ? " •" : "")} — WinSnipper";
+        FileNameText.Text = name;
+        EditedPill.Visibility = _dirty ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// Colours and stroke sizes sit inline while the bar has room for them; on a
+    /// narrow window they fold behind a colour chip and "Copy text" drops to its
+    /// icon, which is what lets a small snip open in a small window.
+    /// </summary>
+    private void TopBar_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (!_compactBar)
+        {
+            // Auto columns measure at their natural width; the star column is the drag strip.
+            double need = 24;
+            foreach (UIElement child in TopBar.Children)
+                if (Grid.GetColumn(child) != 2)
+                    need += child.DesiredSize.Width;
+            _wideBarWidth = need;
+        }
+
+        bool compact = TopBar.ActualWidth < _wideBarWidth;
+        if (compact == _compactBar) return;
+        _compactBar = compact;
+        StylePopup.IsOpen = false;
+        if (compact)
+        {
+            InlineStyleHost.Child = null;
+            FlyoutStyleHost.Child = StylePanel;
+            StyleChip.Visibility = Visibility.Visible;
+            OcrLabel.Visibility = Visibility.Collapsed;
+            BtnOcr.Padding = new Thickness(8, 0, 1, 0);
+        }
+        else
+        {
+            FlyoutStyleHost.Child = null;
+            InlineStyleHost.Child = StylePanel;
+            StyleChip.Visibility = Visibility.Collapsed;
+            OcrLabel.Visibility = Visibility.Visible;
+            BtnOcr.ClearValue(PaddingProperty);
+        }
+    }
+
+    // ---------- colour + stroke ----------
+
+    private void BuildStylePanel()
+    {
+        var style = (Style)FindResource("StyleOption");
+        var hairline = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
+        hairline.Freeze();
+
+        foreach (var (name, color) in Palette)
+        {
+            // Hairline ring so black still reads against the dark bar.
+            var dot = new Grid { Width = 20, Height = 20 };
+            dot.Children.Add(new Ellipse { Fill = new SolidColorBrush(color) });
+            dot.Children.Add(new Ellipse { Stroke = hairline, StrokeThickness = 1 });
+            var rb = new RadioButton { Style = style, Content = dot, ToolTip = name, Tag = color };
+            rb.Checked += (s, _) => SelectColor((Color)((RadioButton)s!).Tag);
+            rb.Click += (_, _) => StylePopup.IsOpen = false;
+            _swatches.Add(rb);
+            ColorsPanel.Children.Add(rb);
+        }
+
+        var sizeStyle = (Style)FindResource("SizeOption");
+        var barBrush = (Brush)FindResource("Ws.Text");
+        for (int i = 0; i < Sizes.Length; i++)
+        {
+            int index = i;
+            double bar = Sizes[i].Bar;
+            var rb = new RadioButton
+            {
+                Style = sizeStyle,
+                Content = new Rectangle { Width = 16, Height = bar, RadiusX = bar / 2, RadiusY = bar / 2, Fill = barBrush },
+                ToolTip = $"{Sizes[i].Name} stroke  ([ and ])",
+            };
+            rb.Checked += (_, _) => _sizeIndex = index;
+            rb.Click += (_, _) => StylePopup.IsOpen = false;
+            _sizeOptions.Add(rb);
+            SizesPanel.Children.Add(rb);
+        }
+
+        _swatches[0].IsChecked = true;
+        _sizeOptions[_sizeIndex].IsChecked = true;
+    }
+
+    private void SelectColor(Color color)
+    {
+        _color = color;
+        ChipDot.Fill = new SolidColorBrush(color);
+    }
+
+    private void SetSize(int index) =>
+        _sizeOptions[Math.Clamp(index, 0, Sizes.Length - 1)].IsChecked = true;
+
+    private double StrokeWidth => Sizes[_sizeIndex].Stroke;
+
+    private void StyleChip_Click(object sender, RoutedEventArgs e) => StylePopup.IsOpen = true;
+
+    // ---------- zoom ----------
+
+    private double PixelScale => VisualTreeHelper.GetDpi(this).DpiScaleX;
+
+    private void FitToViewport()
+    {
+        double native = 1.0 / PixelScale;
+        double vw = Scroller.ViewportWidth - 56;
+        double vh = Scroller.ViewportHeight - 56;
+        double zoom = native;
+        if (vw > 0 && vh > 0 && Surface.Width > 0 && Surface.Height > 0)
+            zoom = Math.Min(native, Math.Min(vw / Surface.Width, vh / Surface.Height));
+        ApplyZoom(zoom);
+        _fitMode = true;
+    }
+
+    /// <summary>A zoom the user asked for: stop following the window size.</summary>
     private void SetZoom(double zoom)
     {
-        zoom = Math.Clamp(zoom, 0.15, 6.0);
-        ZoomTf.ScaleX = ZoomTf.ScaleY = zoom;
-        StatusZoom.Text = $"{zoom * 100:0}%";
+        _fitMode = false;
+        ApplyZoom(zoom);
     }
+
+    private void ApplyZoom(double zoom)
+    {
+        zoom = Math.Clamp(zoom, 0.05, 8.0);
+        ZoomTf.ScaleX = ZoomTf.ScaleY = zoom;
+        // Percent of the snip's own pixels, so "100%" means pixel-for-pixel on any display scale.
+        StatusZoom.Text = $"{zoom * PixelScale * 100:0}%";
+        UpdateOverlayScale();
+    }
+
+    /// <summary>Zooms while keeping the image point under <paramref name="anchor"/> in place.</summary>
+    private void ZoomAt(double zoom, Point anchor)
+    {
+        var imagePoint = Scroller.TranslatePoint(anchor, Surface);
+        SetZoom(zoom);
+        Scroller.UpdateLayout();
+        var moved = Surface.TranslatePoint(imagePoint, Scroller);
+        Scroller.ScrollToHorizontalOffset(Scroller.HorizontalOffset + moved.X - anchor.X);
+        Scroller.ScrollToVerticalOffset(Scroller.VerticalOffset + moved.Y - anchor.Y);
+    }
+
+    private void ZoomBy(double factor) =>
+        ZoomAt(ZoomTf.ScaleX * factor, new Point(Scroller.ViewportWidth / 2, Scroller.ViewportHeight / 2));
 
     private void Scroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
-        SetZoom(ZoomTf.ScaleX * (e.Delta > 0 ? 1.25 : 0.8));
+        ZoomAt(ZoomTf.ScaleX * (e.Delta > 0 ? 1.25 : 0.8), e.GetPosition(Scroller));
         e.Handled = true;
+    }
+
+    private void Scroller_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_fitMode && IsLoaded) FitToViewport();
+    }
+
+    private void ZoomIn_Click(object sender, RoutedEventArgs e) => ZoomBy(1.25);
+    private void ZoomOut_Click(object sender, RoutedEventArgs e) => ZoomBy(0.8);
+    private void ZoomFit_Click(object sender, RoutedEventArgs e) => FitToViewport();
+
+    private void ZoomToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_fitMode) SetZoom(1.0 / PixelScale);
+        else FitToViewport();
+    }
+
+    /// <summary>
+    /// Crop and redact outlines live inside the zoomed surface; dividing by the
+    /// zoom keeps them a constant on-screen weight on a huge or tiny snip.
+    /// </summary>
+    private void UpdateOverlayScale()
+    {
+        double inv = 1.0 / ZoomTf.ScaleX;
+        CropSel.StrokeThickness = 1.5 * inv;
+        CropSelHalo.StrokeThickness = 3 * inv;
+        if (_pixelatePreview != null) _pixelatePreview.StrokeThickness = 1.5 * inv;
+        if (_cropRect is { } r && CropLayer.Visibility == Visibility.Visible)
+        {
+            UpdateCropVisuals(r);
+            if (_pendingCrop != null) PlaceCropActions(r);
+        }
     }
 
     // ---------- tools ----------
 
-    private void Tool_Click(object sender, RoutedEventArgs e)
+    private void Tool_Click(object sender, RoutedEventArgs e) => SelectTool((ToggleButton)sender);
+
+    private void SelectTool(ToggleButton clicked)
     {
-        var clicked = (ToggleButton)sender;
         foreach (var b in _toolButtons)
             b.IsChecked = ReferenceEquals(b, clicked);
         var newTool = Enum.Parse<Tool>((string)clicked.Tag);
@@ -209,7 +344,7 @@ public partial class EditorWindow : Window
             _pixelatePreview = new Rectangle
             {
                 Stroke = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
-                StrokeThickness = 1.5,
+                StrokeThickness = 1.5 / ZoomTf.ScaleX,
                 StrokeDashArray = new DoubleCollection { 4, 3 },
             };
             Canvas.SetLeft(_pixelatePreview, p.X);
@@ -229,7 +364,7 @@ public partial class EditorWindow : Window
         }
 
         var brush = new SolidColorBrush(_color);
-        double th = ThicknessSlider.Value;
+        double th = StrokeWidth;
         switch (_tool)
         {
             case Tool.Pen:
@@ -303,7 +438,7 @@ public partial class EditorWindow : Window
                 _active.Height = r.Height;
                 break;
             case Path path:
-                path.Data = BuildArrow(_start, p, ThicknessSlider.Value);
+                path.Data = BuildArrow(_start, p, StrokeWidth);
                 break;
         }
     }
@@ -439,7 +574,7 @@ public partial class EditorWindow : Window
 
     private TextBox? _editBox;
 
-    private double AnnotationFontSize => 10 + ThicknessSlider.Value * 2;
+    private double AnnotationFontSize => 10 + StrokeWidth * 2;
 
     private void StartText(Point p)
     {
@@ -508,7 +643,7 @@ public partial class EditorWindow : Window
     private void PlaceBadge(Point p)
     {
         int n = Ink.Children.OfType<Grid>().Count(g => Equals(g.Tag, "badge")) + 1;
-        double d = 22 + ThicknessSlider.Value * 2;
+        double d = 22 + StrokeWidth * 2;
         bool lightFill = (_color.R * 0.299 + _color.G * 0.587 + _color.B * 0.114) > 150;
 
         var badge = new Grid { Width = d, Height = d, Tag = "badge" };
@@ -546,14 +681,14 @@ public partial class EditorWindow : Window
     {
         CommitText();
         BtnOcr.IsEnabled = false;
-        StatusSize.Text = "Recognizing text…";
+        StatusMsg.Text = "Recognizing text…";
         try
         {
             string? text = await Util.OcrAsync(Composite());
             if (string.IsNullOrWhiteSpace(text))
             {
-                StatusSize.Text = text is null
-                    ? "OCR unavailable — no OCR language installed"
+                StatusMsg.Text = text is null
+                    ? "OCR unavailable: no OCR language installed"
                     : "No text found in the image";
                 return;
             }
@@ -563,7 +698,7 @@ public partial class EditorWindow : Window
         }
         catch (Exception ex)
         {
-            StatusSize.Text = $"OCR failed: {ex.Message}";
+            StatusMsg.Text = $"OCR failed: {ex.Message}";
         }
         finally
         {
@@ -575,22 +710,63 @@ public partial class EditorWindow : Window
 
     private void UpdateCropVisuals(Rect r)
     {
+        _cropRect = r;
+        double inv = 1.0 / ZoomTf.ScaleX;
+
         var full = new RectangleGeometry(new Rect(0, 0, Surface.Width, Surface.Height));
         CropDim.Data = new CombinedGeometry(GeometryCombineMode.Exclude, full, new RectangleGeometry(r));
-        Canvas.SetLeft(CropSel, r.X);
-        Canvas.SetTop(CropSel, r.Y);
-        CropSel.Width = r.Width;
-        CropSel.Height = r.Height;
+        foreach (var sel in new[] { CropSel, CropSelHalo })
+        {
+            Canvas.SetLeft(sel, r.X);
+            Canvas.SetTop(sel, r.Y);
+            sel.Width = r.Width;
+            sel.Height = r.Height;
+        }
+
+        // Corner brackets, kept inside the selection so a crop flush with the
+        // image edge doesn't lose them to the surface clip.
+        double t = 3.5 * inv;
+        double len = Math.Min(18 * inv, Math.Min(r.Width, r.Height) / 2);
+        double x0 = r.Left + t / 2, y0 = r.Top + t / 2, x1 = r.Right - t / 2, y1 = r.Bottom - t / 2;
+        var g = new StreamGeometry();
+        using (var c = g.Open())
+        {
+            void Bracket(Point a, Point corner, Point b)
+            {
+                c.BeginFigure(a, false, false);
+                c.LineTo(corner, true, false);
+                c.LineTo(b, true, false);
+            }
+            Bracket(new(x0, y0 + len), new(x0, y0), new(x0 + len, y0));
+            Bracket(new(x1 - len, y0), new(x1, y0), new(x1, y0 + len));
+            Bracket(new(x1, y1 - len), new(x1, y1), new(x1 - len, y1));
+            Bracket(new(x0 + len, y1), new(x0, y1), new(x0, y1 - len));
+        }
+        g.Freeze();
+        CropCorners.StrokeThickness = t;
+        CropCorners.Data = g;
+        CropCornersHalo.StrokeThickness = t + 2 * inv;
+        CropCornersHalo.Data = g;
+
+        CropSizeText.Text = $"{(int)Math.Round(r.Width)} × {(int)Math.Round(r.Height)}";
     }
 
+    /// <summary>
+    /// Puts the Crop / Cancel pill under the selection's bottom-right corner, or
+    /// inside it when there is no room below. The pill lives in the unzoomed
+    /// overlay, so image coordinates are scaled by the zoom here.
+    /// </summary>
     private void PlaceCropActions(Rect r)
     {
+        double z = ZoomTf.ScaleX;
         CropActions.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double w = CropActions.DesiredSize.Width;
         double h = CropActions.DesiredSize.Height;
-        double x = Math.Clamp(r.Right - w, 4, Math.Max(4, Surface.Width - w - 4));
-        double y = r.Bottom + 8;
-        if (y + h > Surface.Height - 4) y = Math.Max(4, r.Bottom - h - 8);
+        double imgW = Surface.Width * z, imgH = Surface.Height * z;
+        double right = r.Right * z, bottom = r.Bottom * z;
+        double x = Math.Clamp(right - w, 6, Math.Max(6, imgW - w - 6));
+        double y = bottom + 8;
+        if (y + h > imgH - 6) y = Math.Max(6, bottom - h - 8);
         Canvas.SetLeft(CropActions, x);
         Canvas.SetTop(CropActions, y);
     }
@@ -602,6 +778,7 @@ public partial class EditorWindow : Window
     private void CancelCrop()
     {
         _pendingCrop = null;
+        _cropRect = null;
         CropLayer.Visibility = Visibility.Collapsed;
         CropSel.Visibility = Visibility.Collapsed;
         CropActions.Visibility = Visibility.Collapsed;
@@ -633,6 +810,7 @@ public partial class EditorWindow : Window
         SetImage(cropped);
         _dirty = true;
         UpdateTitle();
+        if (_fitMode) Dispatcher.BeginInvoke(FitToViewport, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     // ---------- undo / output ----------
@@ -734,10 +912,47 @@ public partial class EditorWindow : Window
         }
 
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+
+        // Single-key tool switching, the screenshot-editor convention.
+        if (Keyboard.Modifiers == ModifierKeys.None && _toolKeys.TryGetValue(e.Key, out var toolButton))
+        {
+            SelectTool(toolButton);
+            e.Handled = true;
+            return;
+        }
+
         switch (e.Key)
         {
+            case Key.Escape when StylePopup.IsOpen:
+                StylePopup.IsOpen = false;
+                e.Handled = true;
+                break;
             case Key.Escape when _tool == Tool.Crop && CropLayer.Visibility == Visibility.Visible:
                 CancelCrop();
+                e.Handled = true;
+                break;
+            case Key.OemOpenBrackets when !ctrl:
+                SetSize(_sizeIndex - 1);
+                e.Handled = true;
+                break;
+            case Key.OemCloseBrackets when !ctrl:
+                SetSize(_sizeIndex + 1);
+                e.Handled = true;
+                break;
+            case Key.D0 or Key.NumPad0 when ctrl:
+                FitToViewport();
+                e.Handled = true;
+                break;
+            case Key.D1 or Key.NumPad1 when ctrl:
+                SetZoom(1.0 / PixelScale);
+                e.Handled = true;
+                break;
+            case Key.OemPlus or Key.Add when ctrl:
+                ZoomBy(1.25);
+                e.Handled = true;
+                break;
+            case Key.OemMinus or Key.Subtract when ctrl:
+                ZoomBy(0.8);
                 e.Handled = true;
                 break;
             case Key.Enter when ctrl:

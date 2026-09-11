@@ -129,6 +129,26 @@ internal static class Monitors
     }
 
     /// <summary>
+    /// How far a maximized window hangs past its monitor's work area, in the
+    /// window's DIPs. WindowChrome maximizes to the work area *plus* the
+    /// invisible resize frame, so without this inset the window's outer edge
+    /// (caption buttons included) sits off screen.
+    /// </summary>
+    public static System.Windows.Thickness MaximizedInset(System.Windows.Window window)
+    {
+        IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) return default;
+        var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), ref mi)) return default;
+        var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(window);
+        return new System.Windows.Thickness(
+            Math.Max(0, mi.rcWork.Left - r.Left) / dpi.DpiScaleX,
+            Math.Max(0, mi.rcWork.Top - r.Top) / dpi.DpiScaleY,
+            Math.Max(0, r.Right - mi.rcWork.Right) / dpi.DpiScaleX,
+            Math.Max(0, r.Bottom - mi.rcWork.Bottom) / dpi.DpiScaleY);
+    }
+
+    /// <summary>
     /// Moves a window to an exact physical-pixel rectangle. Going through
     /// SetWindowPos rather than Window.Left/Top sidesteps WPF's DIP conversion,
     /// which uses the *source* monitor's DPI and lands the window in the wrong

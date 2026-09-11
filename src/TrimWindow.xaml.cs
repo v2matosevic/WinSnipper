@@ -51,8 +51,9 @@ public partial class TrimWindow : Window
     public TrimWindow(string path)
     {
         InitializeComponent();
+        DarkWindow.Attach(this, Root);
         _path = path;
-        TitleText.Text = $"Trim — {Path.GetFileName(path)}";
+        TitleText.Text = Path.GetFileName(path);
 
         _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _tick.Tick += (_, _) => OnTick();
@@ -101,16 +102,6 @@ public partial class TrimWindow : Window
                 if (!_busy) Close();
                 break;
         }
-    }
-
-    protected override void OnSourceInitialized(EventArgs e)
-    {
-        base.OnSourceInitialized(e);
-        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        int dark = 1;
-        _ = DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int));
-        int round = 2;
-        _ = DwmSetWindowAttribute(hwnd, 33, ref round, sizeof(int));
     }
 
     // ---------- filmstrip ----------
@@ -205,8 +196,9 @@ public partial class TrimWindow : Window
 
     private void Player_MediaFailed(object sender, ExceptionRoutedEventArgs e)
     {
-        MessageBox.Show(this, $"Could not play this file: {e.ErrorException?.Message}",
-            "WinSnipper", MessageBoxButton.OK, MessageBoxImage.Warning);
+        ErrorOverlayText.Text = $"Could not play this file.\n{e.ErrorException?.Message}";
+        ErrorOverlay.Visibility = Visibility.Visible;
+        UpdatePlayOverlay();
     }
 
     private void Play_Click(object sender, RoutedEventArgs e) => TogglePlay();
@@ -223,10 +215,25 @@ public partial class TrimWindow : Window
     private void SetPlaying(bool playing)
     {
         _playing = playing;
-        PlayBtn.Content = playing ? "⏸" : "▶";
+        if (playing) _hasPlayed = true;
+        PlayBtn.Content = FindResource(playing ? "Ico.Pause" : "Ico.Play");
+        UpdatePlayOverlay();
         if (playing) Player.Play();
         else Player.Pause();
     }
+
+    private bool _hasPlayed;
+
+    // The big play button invites the first click; after that it only shows
+    // while hovering the paused video, so it never sits on the frame you are
+    // lining a cut up against.
+    private void UpdatePlayOverlay() =>
+        PlayOverlay.Visibility = !_playing && ErrorOverlay.Visibility != Visibility.Visible
+                                 && (!_hasPlayed || PlayerFrame.IsMouseOver)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    private void PlayerFrame_Hover(object sender, MouseEventArgs e) => UpdatePlayOverlay();
 
     private void OnTick()
     {
@@ -271,7 +278,16 @@ public partial class TrimWindow : Window
 
     // ---------- timeline interaction ----------
 
+    /// <summary>Handle width. Handles sit inside the kept range, QuickTime-style.</summary>
+    private const double HandleW = 14;
+    private const double PlayheadOverhang = 5;
+
+    private double _grabOffset; // cursor-to-edge distance at mouse down, so a handle doesn't jump
+
     private double TimelineWidth => TimelineHost.ActualWidth;
+
+    /// <summary>Top of the filmstrip inside the (taller) grab area.</summary>
+    private double StripTop => (TimelineArea.ActualHeight - TimelineHost.ActualHeight) / 2;
 
     private double XOf(TimeSpan t) =>
         _duration > TimeSpan.Zero ? TimelineWidth * t.Ticks / _duration.Ticks : 0;
@@ -281,19 +297,33 @@ public partial class TrimWindow : Window
             ? new TimeSpan((long)(_duration.Ticks * Math.Clamp(x / TimelineWidth, 0, 1)))
             : TimeSpan.Zero;
 
+    /// <summary>The handle under x, if any; each one grabs around its own centre.</summary>
+    private DragTarget HandleAt(double x)
+    {
+        double dL = Math.Abs(x - (XOf(_trimStart) + HandleW / 2));
+        double dR = Math.Abs(x - (XOf(_trimEnd) - HandleW / 2));
+        if (dL <= GrabPx && dL <= dR) return DragTarget.Start;
+        if (dR <= GrabPx) return DragTarget.End;
+        return DragTarget.None;
+    }
+
     private void Timeline_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (_busy || _duration <= TimeSpan.Zero) return;
         double x = e.GetPosition(TimelineHost).X;
-        double xL = XOf(_trimStart), xR = XOf(_trimEnd);
 
-        _drag = Math.Abs(x - xL) <= GrabPx && Math.Abs(x - xL) <= Math.Abs(x - xR) ? DragTarget.Start
-              : Math.Abs(x - xR) <= GrabPx ? DragTarget.End
-              : DragTarget.Playhead;
+        _drag = HandleAt(x);
+        if (_drag == DragTarget.None) _drag = DragTarget.Playhead;
+        _grabOffset = _drag switch
+        {
+            DragTarget.Start => x - XOf(_trimStart),
+            DragTarget.End => x - XOf(_trimEnd),
+            _ => 0,
+        };
 
         _wasPlayingBeforeDrag = _playing;
         if (_playing) SetPlaying(false); // scrub paused, resume on release
-        TimelineHost.CaptureMouse();
+        TimelineArea.CaptureMouse();
         Timeline_MouseMove(sender, e);
     }
 
@@ -305,14 +335,11 @@ public partial class TrimWindow : Window
         if (_drag == DragTarget.None)
         {
             // Cursor affordance when hovering a handle.
-            double xL = XOf(_trimStart), xR = XOf(_trimEnd);
-            TimelineHost.Cursor = Math.Abs(x - xL) <= GrabPx || Math.Abs(x - xR) <= GrabPx
-                ? Cursors.SizeWE
-                : Cursors.Arrow;
+            TimelineArea.Cursor = HandleAt(x) != DragTarget.None ? Cursors.SizeWE : Cursors.Arrow;
             return;
         }
 
-        var t = TimeAt(x);
+        var t = TimeAt(x - _grabOffset);
         switch (_drag)
         {
             case DragTarget.Start:
@@ -344,30 +371,51 @@ public partial class TrimWindow : Window
         bool resumePlaying = _wasPlayingBeforeDrag && _drag == DragTarget.Playhead;
         _drag = DragTarget.None;
         TimeBadge.Visibility = Visibility.Collapsed;
-        TimelineHost.ReleaseMouseCapture();
+        TimelineArea.ReleaseMouseCapture();
         ApplyPendingSeek(force: true);
         if (resumePlaying) SetPlaying(true);
     }
 
-    /// <summary>Small time bubble that follows whatever is being dragged.</summary>
+    /// <summary>Small time bubble above the strip that follows whatever is being dragged.</summary>
     private void ShowTimeBadge(TimeSpan t)
     {
         TimeBadgeText.Text = Fmt(t);
         TimeBadge.Visibility = Visibility.Visible;
         TimeBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double bw = TimeBadge.DesiredSize.Width;
-        double x = Math.Clamp(XOf(t) - bw / 2, 2, Math.Max(2, TimelineWidth - bw - 2));
+        double x = Math.Clamp(XOf(t) - bw / 2, 0, Math.Max(0, TimelineWidth - bw));
         Canvas.SetLeft(TimeBadge, x);
-        Canvas.SetTop(TimeBadge, 4);
+        Canvas.SetTop(TimeBadge, StripTop - PlayheadOverhang - TimeBadge.DesiredSize.Height - 6);
     }
 
     private void Timeline_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         // Border.CornerRadius doesn't clip children; do it explicitly.
         TimelineInner.Clip = new System.Windows.Media.RectangleGeometry(
-            new Rect(0, 0, TimelineHost.ActualWidth, TimelineHost.ActualHeight), 7, 7);
+            new Rect(0, 0, TimelineHost.ActualWidth, TimelineHost.ActualHeight), 8, 8);
         UpdateTimeline();
         QueueFilmstripRebuild();
+    }
+
+    private void PlayerFrame_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        PlayerInner.Clip = new System.Windows.Media.RectangleGeometry(
+            new Rect(0, 0, PlayerFrame.ActualWidth, PlayerFrame.ActualHeight), 10, 10);
+
+    // Shortcut hints are a courtesy: drop them whole rather than clip a key in half.
+    private void Footer_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateHints();
+
+    private void UpdateHints() =>
+        Hints.Visibility = ErrorText.Visibility != Visibility.Visible
+                           && Hints.DesiredSize.Width <= Footer.ColumnDefinitions[0].ActualWidth
+            ? Visibility.Visible
+            : Visibility.Hidden;
+
+    private void ShowError(string message)
+    {
+        ErrorText.Text = message;
+        ErrorText.ToolTip = message;
+        ErrorText.Visibility = Visibility.Visible;
+        UpdateHints();
     }
 
     private void UpdateTimeline()
@@ -376,6 +424,7 @@ public partial class TrimWindow : Window
         double h = TimelineHost.ActualHeight;
         if (w <= 0 || _duration <= TimeSpan.Zero) return;
 
+        double top = StripTop;
         double xL = XOf(_trimStart), xR = XOf(_trimEnd), xP = XOf(_playhead);
 
         DimL.Height = h;
@@ -385,27 +434,37 @@ public partial class TrimWindow : Window
         Canvas.SetLeft(DimR, xR);
         DimR.Width = Math.Max(0, w - xR);
 
+        Canvas.SetTop(SelFrame, top);
         SelFrame.Height = h;
         Canvas.SetLeft(SelFrame, xL);
         SelFrame.Width = Math.Max(0, xR - xL);
 
+        Canvas.SetTop(HandleL, top);
+        Canvas.SetTop(HandleR, top);
         HandleL.Height = h;
         HandleR.Height = h;
-        Canvas.SetLeft(HandleL, Math.Max(0, xL - HandleL.Width + 2));
-        Canvas.SetLeft(HandleR, Math.Min(w - 2, xR - 2));
+        Canvas.SetLeft(HandleL, xL);
+        Canvas.SetLeft(HandleR, xR - HandleW);
 
-        Playhead.Height = h;
+        Playhead.Height = h + PlayheadOverhang * 2;
+        Canvas.SetTop(Playhead, top - PlayheadOverhang);
         Canvas.SetLeft(Playhead, xP - 1);
+        Canvas.SetTop(PlayheadKnob, top - PlayheadOverhang - PlayheadKnob.Height / 2 + 1);
         Canvas.SetLeft(PlayheadKnob, xP - PlayheadKnob.Width / 2);
 
-        TimeLabel.Text = $"{Fmt(_playhead)} / {Fmt(_duration)}";
+        TimeNow.Text = Fmt(_playhead);
+        TimeTotal.Text = Fmt(_duration);
         var selected = _trimEnd - _trimStart;
-        RangeLabel.Text = $"{Fmt(_trimStart)} — {Fmt(_trimEnd)}   ·   {selected.TotalSeconds:0.0}s selected";
-
         bool trimmed = _trimStart > TimeSpan.Zero || _trimEnd < _duration;
-        bool usable = !_busy && _trimEnd > _trimStart;
-        SaveBtn.IsEnabled = usable && trimmed;
-        SaveAsBtn.IsEnabled = usable; // exporting an untrimmed copy elsewhere is still useful
+        RangeLabel.Text = trimmed
+            ? $"Keeping {Fmt(_trimStart)} – {Fmt(_trimEnd)}   ·   {selected.TotalSeconds:0.0} s"
+            : $"Full clip   ·   {selected.TotalSeconds:0.0} s   ·   drag the handles to trim";
+
+        bool valid = _trimEnd > _trimStart;
+        // While saving, the primary button stays lit because it is showing the
+        // progress; _busy is what blocks a second save.
+        SaveBtn.IsEnabled = _busy || (valid && trimmed);
+        SaveAsBtn.IsEnabled = !_busy && valid; // exporting an untrimmed copy elsewhere is still useful
     }
 
     private static string Fmt(TimeSpan t) =>
@@ -457,9 +516,12 @@ public partial class TrimWindow : Window
         }
 
         _busy = true;
-        SaveBtn.IsEnabled = false;
         SaveAsBtn.IsEnabled = false;
+        SaveBtn.Content = "Saving…";
+        TrimProgress.Value = 0;
         TrimProgress.Visibility = Visibility.Visible;
+        ErrorText.Visibility = Visibility.Collapsed;
+        UpdateHints();
         if (_playing) SetPlaying(false);
 
         string tmpPath = finalPath + ".tmp.mp4";
@@ -469,7 +531,11 @@ public partial class TrimWindow : Window
         try
         {
             await Task.Run(() => VideoTrimmer.Trim(_path, tmpPath, start, end,
-                p => Dispatcher.BeginInvoke(() => TrimProgress.Value = p)));
+                p => Dispatcher.BeginInvoke(() =>
+                {
+                    TrimProgress.Value = p;
+                    SaveBtn.Content = $"Saving {p * 100:0}%";
+                })));
 
             if (replace)
             {
@@ -485,8 +551,7 @@ public partial class TrimWindow : Window
         {
             Util.LogCrash("Trim", ex);
             try { if (File.Exists(tmpPath)) File.Delete(tmpPath); } catch { }
-            MessageBox.Show(this, $"Trimming failed: {ex.Message}",
-                "WinSnipper", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowError($"Trimming failed: {ex.Message}");
             if (replace)
             {
                 Player.Source = new Uri(_path); // reopen after the failed replace
@@ -497,6 +562,7 @@ public partial class TrimWindow : Window
         finally
         {
             _busy = false;
+            SaveBtn.Content = "Save trimmed";
             TrimProgress.Visibility = Visibility.Collapsed;
             UpdateTimeline();
         }
@@ -512,9 +578,4 @@ public partial class TrimWindow : Window
             path = Path.Combine(dir, $"{stem} (trimmed {i}).mp4");
         return path;
     }
-
-    private void Close_Click(object sender, RoutedEventArgs e) => Close();
-
-    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 }
