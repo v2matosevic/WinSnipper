@@ -1,4 +1,4 @@
-# WinSnipper
+﻿# WinSnipper
 
 Tray app (.NET 8 WPF, no NuGet packages) that replaces Win+Shift+S and records
 the screen. One project, two flavors: lite `WinSnipper.exe` and
@@ -41,6 +41,16 @@ test, harnesses).
   rendered at mismatched sizes and depend on the fonts an install has.
 - Windows excluded from capture render black to GDI-style capture. HUD and
   border windows must never overlap the recorded region.
+- The keyboard hook runs on its own thread, never the UI thread. Windows
+  delivers LL hook callbacks on the installing thread; behind a busy UI thread
+  the callback exceeds `LowLevelHooksTimeout` and Windows hands the keystroke
+  to the shell — the built-in Snipping Tool opening over us is exactly that.
+- A capture's pixels live in an unmanaged section WPF reads in place. Never
+  return an unfrozen capture, and never let the section handle and its bitmap
+  come apart — `ConditionalWeakTable` is what ties them.
+- `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingTool` is the only
+  thing the app writes outside its own folder. Record the old value before
+  changing it; the settings checkbox and `winsnipper.ps1 uninstall` restore it.
 - Interop: vtable placeholders are named `ReservedN`, never `_VtblGap*` (the
   runtime reads that prefix as a gap directive). Verify GUIDs against the
   Windows SDK headers.

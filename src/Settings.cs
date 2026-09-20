@@ -19,6 +19,20 @@ public sealed class Settings
     public bool RecModCtrl { get; set; }
     public bool RecModAlt { get; set; }
 
+    /// <summary>
+    /// Take PrintScreen over as a second capture hotkey and stop Windows from
+    /// opening its own Snipping Tool on it. Win+Shift+S is intercepted either
+    /// way; this is the other door into the built-in tool.
+    /// </summary>
+    public bool ReplaceSnippingTool { get; set; } = true;
+
+    /// <summary>
+    /// What Windows had PrintScreen bound to before we took it over, so
+    /// turning the setting off puts it back exactly. -1 means "no value was
+    /// set", the state we restore by deleting ours.
+    /// </summary>
+    public int SavedPrintScreenBinding { get; set; } = -1;
+
     public int DismissSeconds { get; set; } = 3;
     public string SaveDir { get; set; } = DefaultSaveDir;
     public bool CopyToClipboard { get; set; } = true;

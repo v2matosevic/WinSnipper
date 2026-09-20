@@ -98,6 +98,14 @@ public partial class App : Application
             _tray.ShowError($"Could not install the {Util.CurrentHotkeyDisplay} hook: {ex.Message}\nUse the tray menu to snip.");
         }
 
+        // Win+Shift+S is ours by way of the hook; PrintScreen is a Windows
+        // setting, so it has to be turned off rather than intercepted.
+        SnippingTool.ApplyPolicy();
+
+        // Pay the first-capture cost now, at idle, rather than on the first
+        // hotkey press.
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)Warmup.Run);
+
         _ = CheckForUpdatesLoop();
         _ = AutoCleanup.RunLoopAsync();
     }
@@ -107,12 +115,17 @@ public partial class App : Application
     private void QueueCapture(string operation, uint timestamp, Action<PerformanceTrace> action)
     {
         var trace = new PerformanceTrace(operation, timestamp);
-        Dispatcher.BeginInvoke(() =>
+        // Raised here, on the hook thread, so the boost is already in place
+        // while the dispatcher is still competing for a core with whatever is
+        // making the machine feel slow in the first place.
+        var boost = Responsiveness.Interactive();
+        Dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
         {
             trace.Mark("dispatched");
             try { action(trace); }
             catch { trace.Finish("failed"); throw; }
-        });
+            finally { boost.Dispose(); }
+        }));
     }
 
     private void InstallCrashHandlers()
@@ -198,8 +211,22 @@ public partial class App : Application
         int exit = 0;
         try
         {
+            // The hotkey hook now lives on its own thread; prove it installs
+            // and tears down cleanly before anything else.
+            using (var hook = new KeyboardHook())
+                hook.Reinstall();
+
+            // Builds and discards the selection overlay and the whole imaging
+            // pipeline without showing anything — the real startup path.
+            Warmup.Prime();
+
             var (shot, _) = ScreenCapture.CaptureVirtualScreen();
-            Util.SavePng(shot, Path.Combine(Util.SnipsDir, "_selftest.png"));
+            if (!shot.IsFrozen)
+                throw new Exception("capture is not frozen and cannot leave the UI thread");
+
+            // Snips are encoded on a worker now, so prove a capture really can
+            // be read off the thread that took it.
+            await Task.Run(() => Util.SavePng(shot, Path.Combine(Util.SnipsDir, "_selftest.png")));
             string? ocr = Util.OcrSupported ? await Util.OcrAsync(shot) : "(OCR not in this build)";
             File.WriteAllText(Path.Combine(Util.SnipsDir, "_selftest.txt"), ocr ?? "(OCR unavailable)");
 

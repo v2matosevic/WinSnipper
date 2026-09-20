@@ -38,6 +38,13 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <!-- WFAC010: WinForms analyzer flags the manifest DPI block, but WPF needs PerMonitorV2 declared there. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
+
+    <!-- The first hotkey press of a session should not also be the first time
+         the CLR compiles the capture path. Precompiling costs a few MB in the
+         single-file exe and buys back most of the cold-start latency. Applies
+         to publish only, so `dotnet build` stays quick. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <TieredPGO>true</TieredPGO>
   </PropertyGroup>
 
   <!-- UseWindowsForms injects these as global usings, which clash with WPF types. -->

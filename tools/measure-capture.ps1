@@ -74,6 +74,32 @@ class Program
         byte[] after = new byte[before.Length];
         new FormatConvertedBitmap(decoded.Frames[0], PixelFormats.Bgra32, null, 0).CopyPixels(after, 64 * 4, 0);
         if (!before.SequenceEqual(after)) throw new Exception("PNG round-trip changed pixels");
+        // The current capture path keeps its pixels in an unmanaged section, so
+        // prove the handle and the memory come back rather than piling up.
+        var self = Process.GetCurrentProcess();
+        var retention = new List<string>();
+        int Settle()
+        {
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); GC.WaitForPendingFinalizers();
+            self.Refresh();
+            return self.HandleCount;
+        }
+        int handlesAtStart = Settle();
+        int handlesAtEnd = handlesAtStart;
+        foreach (int batch in new[] { 48, 96, 192 })
+        {
+            for (int i = 0; i < batch; i++) { var (img, _) = ScreenCapture.CaptureVirtualScreen(); GC.KeepAlive(img); }
+            handlesAtEnd = Settle();
+            retention.Add($"after {batch}: {handlesAtEnd} handles, {self.PrivateMemorySize64 / (1024 * 1024)} MB");
+        }
+        // A capture that forgot to release its section would show up as one
+        // retained handle and ~24 MB per capture; flat across 336 is the pass.
+        if (handlesAtEnd - handlesAtStart > 16)
+            throw new Exception($"Captures retained handles: {handlesAtStart} -> {handlesAtEnd}");
+        long privateMb = self.PrivateMemorySize64 / (1024 * 1024);
+        if (privateMb > 400)
+            throw new Exception($"Captures retained memory: {privateMb} MB after 336 captures");
+
         double Median(List<double> values) { values.Sort(); return (values[5] + values[6]) / 2; }
         Console.WriteLine(JsonSerializer.Serialize(new {
             bounds = bounds.ToString(), renderTier = RenderCapability.Tier >> 16,
@@ -81,6 +107,8 @@ class Program
             baselineMedianMs = Median(oldTimes), currentMedianMs = Median(newTimes),
             baselineSamplesMs = oldTimes, currentSamplesMs = newTimes,
             gdiHandlesBefore = handlesBefore, gdiHandlesAfter = handlesAfter,
+            handlesBefore = handlesAtStart, handlesAfter = handlesAtEnd,
+            retention, privateMemoryMbAfter = privateMb,
             frozenPixelsCropOpaquePngRoundTrip = "passed"
         }, new JsonSerializerOptions { WriteIndented = true }));
     }

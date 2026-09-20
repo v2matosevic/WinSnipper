@@ -1,4 +1,4 @@
-# WinSnipper
+﻿# WinSnipper
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
@@ -181,8 +181,20 @@ itself created are touched.
 ## Why the hotkey override works
 
 A `WH_KEYBOARD_LL` hook sees Win+Shift+S before the Windows Snipping Tool does
-and swallows it (the same mechanism AutoHotkey uses). No registry hacks — quit
-WinSnipper and stock Windows behavior is back instantly.
+and swallows it (the same mechanism AutoHotkey uses). The hook runs on its own
+dedicated thread: Windows delivers the callback on whichever thread installed
+it, and a hook sitting behind a busy UI thread eventually blows through
+`LowLevelHooksTimeout`, at which point Windows hands the keystroke to the shell
+anyway and the built-in Snipping Tool opens on top of you. A thread that does
+nothing else answers in microseconds however busy the app is.
+
+Windows 11 has a second door into the same tool: bare **PrintScreen**. That one
+is a Windows setting rather than a hotkey, so *Replace the Windows Snipping
+Tool* (on by default) turns it off and captures on PrintScreen instead. It is
+the one thing WinSnipper writes outside its own folder — a single
+`HKCU\Control Panel\Keyboard` value, whose previous state is recorded first.
+Unticking the setting, or `tools\winsnipper.ps1 uninstall`, puts it back
+exactly as it was. Win+Shift+S needs no registry change at all.
 
 ## Settings
 
@@ -190,6 +202,8 @@ Tray icon → **Settings…**
 
 - Rebind the snip and recording hotkeys (any modifier combo — recorded live,
   including Win-combos)
+- Replace the Windows Snipping Tool: also capture on PrintScreen, and stop
+  Windows opening its own overlay on that key (on by default, reversible)
 - Recording frame rate (15/30/60) and cursor visibility
 - Ask where to save each recording when it stops (off by default)
 - Thumbnail auto-dismiss time (1–15 s)

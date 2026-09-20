@@ -25,6 +25,7 @@ public partial class FloatingThumb : Window
     private static TimeSpan DismissAfter => TimeSpan.FromSeconds(Settings.Current.DismissSeconds);
 
     private string _path;
+    private Task? _saving;
     private readonly bool _isVideo;
     private BitmapSource _img;
     private EditorWindow? _editor;
@@ -43,11 +44,16 @@ public partial class FloatingThumb : Window
     /// A point inside the captured region, in virtual-screen pixels. The thumb
     /// docks to the monitor containing it; null falls back to the cursor's monitor.
     /// </param>
+    /// <param name="saving">
+    /// An in-flight write of this capture, if the card went up before the file
+    /// landed. Every action that touches the file on disk waits on it first.
+    /// </param>
     public FloatingThumb(string path, BitmapSource image, bool isVideo = false,
-                         System.Drawing.Point? anchor = null)
+                         System.Drawing.Point? anchor = null, Task? saving = null)
     {
         InitializeComponent();
         _path = path;
+        _saving = saving;
         _isVideo = isVideo;
         _anchor = anchor;
         Opacity = 0; // AnimateIn fades it up once it is on the right monitor
@@ -86,6 +92,19 @@ public partial class FloatingThumb : Window
         // Keep it alive while the context menu is open; resume the countdown after.
         Card.ContextMenuOpening += (_, _) => _dismissTimer.Stop();
         Card.ContextMenu!.Closed += (_, _) => RestartCountdown();
+    }
+
+    /// <summary>
+    /// Blocks until the capture is actually on disk. Called by everything that
+    /// hands the path to somebody else — dragging the file out, the editor,
+    /// Explorer — so the background write is invisible rather than a race.
+    /// </summary>
+    private void EnsureSaved()
+    {
+        if (_saving is null) return;
+        try { _saving.Wait(TimeSpan.FromSeconds(10)); }
+        catch (Exception ex) { Util.LogCrash("SnipSave", ex); }
+        _saving = null;
     }
 
     private bool _pinned;
@@ -189,6 +208,7 @@ public partial class FloatingThumb : Window
             return;
 
         _maybeDrag = false;
+        EnsureSaved();
         var data = new DataObject(DataFormats.FileDrop, new[] { _path });
         if (!_isVideo)
             data.SetImage(_img); // for targets that accept bitmaps rather than files
@@ -230,6 +250,7 @@ public partial class FloatingThumb : Window
     // Opening the editor (or trim window for videos) consumes the thumbnail.
     private void OpenEditor()
     {
+        EnsureSaved();
         if (_isVideo)
         {
             if (_trim is { IsLoaded: true })
@@ -262,7 +283,11 @@ public partial class FloatingThumb : Window
 
     private void Copy_Click(object sender, RoutedEventArgs e) => Util.TrySetClipboard(_img);
 
-    private void CopyFile_Click(object sender, RoutedEventArgs e) => Util.TrySetClipboardFile(_path);
+    private void CopyFile_Click(object sender, RoutedEventArgs e)
+    {
+        EnsureSaved();
+        Util.TrySetClipboardFile(_path);
+    }
 
     private async void CopyText_Click(object sender, RoutedEventArgs e)
     {
@@ -287,6 +312,7 @@ public partial class FloatingThumb : Window
     {
         _pinned = true; // the dialog is modal — don't let the card fade behind it
         _dismissTimer.Stop();
+        EnsureSaved();
 
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
@@ -331,11 +357,17 @@ public partial class FloatingThumb : Window
         }
     }
 
-    private void OpenDefault_Click(object sender, RoutedEventArgs e) =>
+    private void OpenDefault_Click(object sender, RoutedEventArgs e)
+    {
+        EnsureSaved();
         Process.Start(new ProcessStartInfo(_path) { UseShellExecute = true });
+    }
 
-    private void ShowInFolder_Click(object sender, RoutedEventArgs e) =>
+    private void ShowInFolder_Click(object sender, RoutedEventArgs e)
+    {
+        EnsureSaved();
         Process.Start("explorer.exe", $"/select,\"{_path}\"");
+    }
 
     private void CloseItem_Click(object sender, RoutedEventArgs e) => Close();
 

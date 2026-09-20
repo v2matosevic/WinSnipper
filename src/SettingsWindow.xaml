@@ -129,6 +129,10 @@
                     HorizontalContentAlignment="Center"/>
             <TextBlock Style="{StaticResource Hint}"
                        Text="Click, then press the combination you want (e.g. Win + Shift + S). Esc cancels."/>
+            <CheckBox x:Name="SnippingToolCheck" Margin="0,10,0,0"
+                      Content="Replace the Windows Snipping Tool"/>
+            <TextBlock Style="{StaticResource Hint}"
+                       Text="Also captures on PrintScreen, and stops Windows opening its own snip overlay on that key. Unticking puts the key back exactly as it was."/>
 
             <!-- recording -->
             <TextBlock Style="{StaticResource Label}" Text="Recording hotkey" Margin="0,18,0,0"/>

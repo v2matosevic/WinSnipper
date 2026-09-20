@@ -1,5 +1,44 @@
 ﻿# Changelog
 
+## Unreleased
+
+Nothing else should be able to answer the capture hotkey, and a busy machine
+should not be the reason a screenshot takes seconds.
+
+- **The hotkey hook moved off the UI thread.** Windows delivers a low-level
+  keyboard callback on the thread that installed the hook, so WinSnipper's
+  hook used to queue behind every window it was building and every garbage
+  collection it was running. Past `LowLevelHooksTimeout` (300 ms by default)
+  Windows stops waiting, hands the keystroke to the shell anyway — which is
+  the Windows Snipping Tool opening on top of you — and unhooks after repeat
+  offences. The hook now owns a dedicated high-priority thread that does
+  nothing else, and rejects keys that are not ours before it looks at modifier
+  state, which is most of the work it used to do on every keystroke in the
+  system.
+- **Replace the Windows Snipping Tool** (new setting, on by default).
+  Win+Shift+S was already intercepted; Windows 11's other route into the same
+  tool is bare PrintScreen, which is a setting rather than a hotkey. WinSnipper
+  now captures on PrintScreen and turns that setting off, recording the
+  previous value first — unticking the box, or `winsnipper.ps1 uninstall`,
+  restores it exactly. Alt+PrintScreen is untouched.
+- **Captures no longer copy the desktop twice.** The screen is blitted straight
+  into a shared memory section that WPF reads in place. On the tested
+  5760 × 1080 desktop, median capture preparation fell from 64.3 ms to 46.1 ms
+  and the first capture of a run from 144.4 ms to 62.0 ms, and each snip stops
+  allocating roughly 24 MB of large-object-heap garbage. See
+  [performance results](docs/PERFORMANCE.md).
+- **The capture path gets priority while it runs.** Pressing the hotkey lifts
+  the process above whatever is making the machine feel slow, and drops it
+  back as soon as the selection is done.
+- **The first snip of a session no longer pays for the last one's warm-up.**
+  The selection overlay, the crop/encode/render pipeline and the capture path
+  are all exercised once at startup, at idle, with nothing shown on screen.
+  Published builds are precompiled (ReadyToRun), so the first hotkey press is
+  not also the first time the runtime compiles that code.
+- **The PNG is written in the background.** The thumbnail appears as soon as
+  the snip exists; anything that hands the file to someone else — dragging it
+  out, the editor, Explorer — waits for the write first.
+
 ## 0.7.0 — 2026-09-11
 
 A redesigned editor and trim window, and a faster snip.

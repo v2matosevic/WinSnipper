@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Run, supervise and rebuild the locally-installed WinSnipper.
 
@@ -236,6 +236,27 @@ function Invoke-Setup {
     Invoke-Status
 }
 
+# WinSnipper switches Windows' own PrintScreen -> Snipping Tool binding off
+# while it is the capture tool, and remembers what it found. Uninstalling has
+# to put that back, or PrintScreen ends up doing nothing at all.
+function Restore-PrintScreen {
+    $kb = 'HKCU:\Control Panel\Keyboard'
+    $name = 'PrintScreenKeyForSnippingTool'
+    # Set-StrictMode makes a missing property fatal, so look before reading.
+    $key = Get-ItemProperty -Path $kb -ErrorAction SilentlyContinue
+    if (-not $key -or ($key.PSObject.Properties.Name -notcontains $name)) { return }
+    if ($key.$name -ne 0) { return }  # not ours to restore
+
+    $saved = -1
+    $settings = Join-Path $StateDir 'settings.json'
+    if (Test-Path $settings) {
+        try { $saved = [int](Get-Content $settings -Raw | ConvertFrom-Json).SavedPrintScreenBinding } catch { $saved = -1 }
+    }
+    if ($saved -ge 0) { Set-ItemProperty -Path $kb -Name $name -Value $saved -Type DWord }
+    else { Remove-ItemProperty -Path $kb -Name $name -ErrorAction SilentlyContinue }
+    Write-Ok 'PrintScreen handed back to Windows.'
+}
+
 function Invoke-Uninstall {
     Write-Host "`nRemoving WinSnipper's supervision (the app and its files stay)" -ForegroundColor Cyan
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -247,6 +268,7 @@ function Invoke-Uninstall {
         Remove-Item $p -Force -ErrorAction SilentlyContinue
     }
     Write-Ok 'Shortcuts removed.'
+    Restore-PrintScreen
     Write-Step "Still running? Stop it with: tools\winsnipper.ps1 stop"
 }
 

@@ -24,6 +24,7 @@ public partial class SettingsWindow : Window
         DismissLabel.Text = $"{_draft.DismissSeconds} s";
         SaveDirText.Text = _draft.SaveDir;
         ClipboardCheck.IsChecked = _draft.CopyToClipboard;
+        SnippingToolCheck.IsChecked = _draft.ReplaceSnippingTool;
         StartupCheck.IsChecked = StartupManager.IsEnabled();
 
         FpsCombo.SelectedIndex = Math.Max(0, Array.IndexOf(FpsChoices, _draft.RecordFps));
@@ -81,7 +82,7 @@ public partial class SettingsWindow : Window
         RecHotkeyBox.Content = Util.FormatHotkey(_draft.RecModWin, _draft.RecModCtrl, _draft.RecModAlt, _draft.RecModShift, _draft.RecHotkeyVk);
     }
 
-    /// <summary>Runs from the low-level hook (UI thread). Swallows every key while capturing.</summary>
+    /// <summary>Runs on the hook thread, not the UI thread. Swallows every key while capturing.</summary>
     private bool OnCaptureKey(uint vk)
     {
         if (vk == 0x1B) // Esc cancels
@@ -185,6 +186,7 @@ public partial class SettingsWindow : Window
         StopCapture();
         _draft.DismissSeconds = (int)DismissSlider.Value;
         _draft.CopyToClipboard = ClipboardCheck.IsChecked == true;
+        _draft.ReplaceSnippingTool = SnippingToolCheck.IsChecked == true;
         _draft.RecordFps = FpsChoices[Math.Clamp(FpsCombo.SelectedIndex, 0, FpsChoices.Length - 1)];
         _draft.RecordCursor = CursorCheck.IsChecked == true;
         _draft.AskWhereToSaveRecordings = AskWhereCheck.IsChecked == true;
@@ -192,6 +194,7 @@ public partial class SettingsWindow : Window
             ? AutoDeleteChoices[Math.Clamp(AutoDeleteCombo.SelectedIndex, 0, AutoDeleteChoices.Length - 1)]
             : 0;
         _draft.Save();
+        SnippingTool.ApplyPolicy();
         try { StartupManager.SetEnabled(StartupCheck.IsChecked == true); } catch { }
         Close();
     }

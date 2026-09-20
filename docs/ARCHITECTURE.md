@@ -17,8 +17,11 @@ KeyboardHook ────┤                       window/screen)   thumb)
 
 | File | Responsibility |
 |---|---|
-| `KeyboardHook.cs` | `WH_KEYBOARD_LL` hook. Sees the configured combos (snip + record) before the OS hotkey (that's how Win+Shift+S can be overridden), swallows them, sends a dummy key so the Start menu doesn't open on Win-up. Also exposes `CaptureInterceptor` so the settings window can record a new hotkey — including Win-combos. |
-| `ScreenCapture.cs` | GDI capture of the whole virtual screen (all monitors), then a direct copy of locked opaque Bgr32 pixels into a frozen `BitmapSource`, in physical pixels. Avoids an intermediate HBITMAP and alpha conversion. |
+| `KeyboardHook.cs` | `WH_KEYBOARD_LL` hook **on its own dedicated thread with its own message pump** — Windows delivers the callback on the installing thread, so this must never be the UI thread (see decisions). Sees the configured combos (snip + record) before the OS hotkey, swallows them, sends a dummy key so the Start menu doesn't open on Win-up. Rejects keys that match neither hotkey before reading modifier state. Also exposes `CaptureInterceptor` so the settings window can record a new hotkey — including Win-combos; that callback now runs on the hook thread. |
+| `ScreenCapture.cs` | Blits the whole virtual screen (all monitors) into a `CreateFileMapping` section through a `CreateDIBSection` bitmap, then hands that same memory to WPF via `Imaging.CreateBitmapSourceFromMemorySection` — the pixels are never copied. A `ConditionalWeakTable` keeps each section's handle alive exactly as long as its bitmap, with `GC.AddMemoryPressure` so the collector can see memory it does not own. |
+| `Responsiveness.cs` | Reference-counted process-priority boost for the length of a capture, with its own expiry so an overlay left open on an unattended desk cannot pin the process at High. |
+| `Warmup.cs` | Runs the whole capture → overlay → crop → encode → render path once at startup, at idle, showing nothing and writing nothing, so the first hotkey press is not the one that pays for it. |
+| `SnippingTool.cs` | The one thing WinSnipper writes outside its own folder: `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingTool`, so Windows 11's other route into its built-in tool is closed while ours is open. The previous value goes into settings.json first, and unticking the setting restores it. |
 | `PerformanceTrace.cs` | Input-to-first-render stages for capture overlays and editors. Carries the keyboard event timestamp through dispatch, records capture/construction/render times, and writes to the bounded session log on a worker. See [performance evidence](PERFORMANCE.md). |
 | `SnipManager.cs` | One snip end-to-end: hide thumbs → capture → overlay → crop → save + clipboard → spawn thumbnail. |
 | `SnipOverlay.xaml` | Fullscreen selection UI with three pick modes: drag a **region**, click a **window** (`EnumWindows` + DWM frame bounds, cloaked windows filtered), click a **screen**. Frozen-screenshot mode for snips, live transparent mode for recordings (the desktop keeps moving). All selection math in physical pixels via `GetCursorPos`, so results are pixel-exact at any DPI scale. |
@@ -88,7 +91,24 @@ survive the reboot and suppress the next logon's start.
 
 - **Hotkey override**: `RegisterHotKey` cannot claim Win+Shift+S (the shell owns
   it). A low-level hook fires first and can swallow it. The override exists
-  only while the app runs — no registry edits, nothing to undo.
+  only while the app runs.
+- **The keyboard hook must never live on the UI thread.** Windows delivers
+  LL hook callbacks on the thread that installed the hook. Behind a busy WPF
+  UI thread the callback eventually exceeds `LowLevelHooksTimeout` (300 ms by
+  default), and Windows then does two things: it delivers the keystroke to the
+  shell regardless — the built-in Snipping Tool opening over WinSnipper is
+  exactly this — and after repeat offences it unhooks us entirely. That is
+  what `KeyboardHook.Reinstall()` and its 5-minute timer were papering over.
+  A dedicated thread that only pumps this callback answers in microseconds.
+- **PrintScreen is a setting, not a hotkey.** Swallowing the key is not enough
+  on Windows 11, because the shell's PrintScreen → Snipping Tool binding lives
+  in the registry. `SnippingTool.cs` turns it off and records what it replaced;
+  `tools\winsnipper.ps1 uninstall` puts it back. Alt+PrintScreen is left alone.
+- **Capture pixels are never copied.** The desktop is blitted into a shared
+  section that WPF maps and reads in place. The obvious alternative — blit into
+  a GDI bitmap, hand the pixels to `BitmapSource.Create` — copies the entire
+  desktop into a fresh LOH array on every snip (~24 MB at 5760 × 1080), which
+  is the cost you can least afford on the machine that already feels slow.
 - **DPI**: the process is Per-Monitor-V2 (`app.manifest`). Capture and
   selection run in physical pixels; WPF surfaces are mapped 1 DIP = 1 px and
   scaled visually, so output never depends on display scaling.

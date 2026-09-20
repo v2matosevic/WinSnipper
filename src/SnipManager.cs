@@ -44,7 +44,12 @@ public sealed class SnipManager
                 cropped.Freeze();
 
                 string path = NextSnipPath();
-                Util.SavePng(cropped, path);
+                // Encode and write on a worker. PNG compression of a
+                // full-screen selection is long enough to be felt, and nothing
+                // about it needs to happen before the thumbnail appears —
+                // anything that does need the file waits on this task first.
+                var saving = Task.Run(() => Util.SavePng(cropped, path));
+
                 if (Settings.Current.CopyToClipboard)
                     Util.TrySetClipboard(cropped);
 
@@ -53,7 +58,7 @@ public sealed class SnipManager
                 var anchor = new System.Drawing.Point(
                     bounds.X + sel.X + sel.Width / 2,
                     bounds.Y + sel.Y + sel.Height / 2);
-                new FloatingThumb(path, cropped, anchor: anchor).ShowStacked();
+                new FloatingThumb(path, cropped, anchor: anchor, saving: saving).ShowStacked();
             }
         }
         finally

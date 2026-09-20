@@ -82,6 +82,31 @@ public partial class SnipOverlay : Window
         MoveWindow(hwnd, _vs.X, _vs.Y, _vs.Width, _vs.Height, false);
     }
 
+    /// <summary>
+    /// Builds one overlay and throws it away so the first real hotkey press is
+    /// not also the first time WPF parses this window, resolves its styles and
+    /// lays it out. It is never shown: no window is created, nothing appears.
+    /// </summary>
+    public static void Warm(BitmapSource screenshot, Int32Rect virtualScreenPx)
+    {
+        if (IsOpen) return; // a real capture is in flight — leave it alone
+        SnipOverlay? overlay = null;
+        try
+        {
+            overlay = new SnipOverlay(screenshot, virtualScreenPx);
+            if (overlay.Content is UIElement content)
+            {
+                content.Measure(new Size(400, 300));
+                content.Arrange(new Rect(0, 0, 400, 300));
+            }
+        }
+        finally
+        {
+            try { overlay?.Close(); } catch { }
+            IsOpen = false;
+        }
+    }
+
     // ---------- mode switching ----------
 
     private void Mode_Checked(object sender, RoutedEventArgs e)
