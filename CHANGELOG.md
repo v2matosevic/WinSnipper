@@ -30,11 +30,14 @@ should not be the reason a screenshot takes seconds.
 - **The capture path gets priority while it runs.** Pressing the hotkey lifts
   the process above whatever is making the machine feel slow, and drops it
   back as soon as the selection is done.
-- **The first snip of a session no longer pays for the last one's warm-up.**
-  The selection overlay, the crop/encode/render pipeline and the capture path
-  are all exercised once at startup, at idle, with nothing shown on screen.
-  Published builds are precompiled (ReadyToRun), so the first hotkey press is
-  not also the first time the runtime compiles that code.
+- **The first snip of a session starts warm.** The selection overlay, the
+  crop/encode/render pipeline and the capture path are all exercised once at
+  startup, at idle, with nothing shown on screen, and published builds are
+  precompiled (ReadyToRun). Measured on the first real snip of an 0.8.0
+  session: overlay construction 22.5 ms, against 317 ms for the first snip of
+  an 0.7.0 session. The window's *first render* is not warmed by this and
+  remains the largest single stage — see
+  [performance results](docs/PERFORMANCE.md).
 - **The PNG is written in the background.** The thumbnail appears as soon as
   the snip exists; anything that hands the file to someone else — dragging it
   out, the editor, Explorer — waits for the write first.

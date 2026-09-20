@@ -122,10 +122,31 @@ Measured only as "builds, passes and does not regress the above":
   waits for the disk. Everything that hands the path to another program waits
   for that write first.
 
-The effect of the warm-up and of ReadyToRun on real first-snip timing is **not
-measured**; `session.log` records `input-age`, `dispatched`, `captured`,
-`constructed` and `rendered` for every capture, which is where that evidence
-would come from in normal use.
+### First real 0.8.0 sample
+
+The first snip taken on the installed 0.8.0 build, 68 seconds after a restart
+and while the machine was busy publishing this release, logged:
+
+```
+performance snip input-age=0ms dispatched=1.2ms captured=71.0ms constructed=93.5ms rendered=542.9ms
+```
+
+Read against the 0.7.0 samples above, that says the warm-up works on the stage
+it can reach and not on the one it cannot. **Construction**, capture to
+constructed, was 22.5 ms; on 0.7.0 the first snip after a restart spent 317 ms
+there and a warm snip 1.4–4.4 ms, so the overlay was already warm on its first
+use. **First render**, constructed to rendered, was 449 ms against roughly
+130 ms for a warm 0.7.0 snip — untouched, because the warm-up builds and lays
+out the overlay but never creates a window or a render surface.
+
+This is one sample on a loaded machine, so it does not establish a steady-state
+figure. It does confirm the split: the remaining cost is the window, and only
+overlay reuse addresses it.
+
+The effect of ReadyToRun on real first-snip timing is **not measured**
+separately. `session.log` records `input-age`, `dispatched`, `captured`,
+`constructed` and `rendered` for every capture, which is where cleaner
+evidence would come from in normal use.
 
 Both flavors passed `--selftest` (exit 0) after these changes, which shipped in
 [v0.8.0](https://github.com/v2matosevic/WinSnipper/releases/tag/v0.8.0).
