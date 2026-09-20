@@ -265,7 +265,8 @@ Ideas queued up — PRs welcome:
 - [Contributing](CONTRIBUTING.md) — build, smoke test, ground rules
 - [Changelog](CHANGELOG.md)
 - [Performance](docs/PERFORMANCE.md) — capture benchmark, opening timings,
-  diagnostics and verification limits for the 0.7.0 capture-speed work
+  diagnostics, and what is measured versus reasoned in each round of
+  capture-speed work
 
 ## Credits
 

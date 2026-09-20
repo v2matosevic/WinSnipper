@@ -73,6 +73,38 @@ forced collection and finalization:
 Flat. A capture that failed to release its section would show as one retained
 handle and roughly 24 MB apiece.
 
+## Selection dragging
+
+The dimmed area outside the selection was a `CombinedGeometry` Exclude, rebuilt
+from three fresh objects on every mouse move. It is now a single reused
+`GeometryGroup` with `FillRule.EvenOdd` over [whole overlay, selection], in
+which a drag only assigns the hole's rectangle. Even-odd over two rectangles
+paints exactly what Exclude painted.
+
+Verified offscreen by rendering both versions of the path at 1440 × 810 and
+comparing every byte, with no selection and with a deliberately fractional one
+(317.5, 128.25, 642.75, 401.5): **0 differing bytes** in both states. Cost of
+the per-move work, 2000 moves:
+
+| Per 2000 mouse moves | Previous | Now |
+| --- | ---: | ---: |
+| Time | 8.4 ms | 1.9 ms |
+| Allocated | 1000 KB | 187 KB |
+
+## Where the remaining time is
+
+Real interaction logs from 0.7.0 on the 5760 × 1080 desktop looked like
+`captured=70.9ms constructed=72.3ms rendered=199.6ms` — so with capture down to
+around 46 ms, **first render is now the largest stage at roughly 130 ms**. That
+is the cost of creating a 5760 × 1080 window and its render surface, paid once
+per snip because the overlay is constructed fresh each time.
+
+The remaining lever is keeping one overlay alive and showing and hiding it
+instead of building a new one. That means giving up `ShowDialog` for `Show` plus
+a completion callback, which changes activation, focus and modality for both the
+snip and the recording paths. It was not taken here: it is a real refactor with
+real regression surface, not a tweak.
+
 ## The rest of the change
 
 Measured only as "builds, passes and does not regress the above":
@@ -95,7 +127,8 @@ measured**; `session.log` records `input-age`, `dispatched`, `captured`,
 `constructed` and `rendered` for every capture, which is where that evidence
 would come from in normal use.
 
-Both flavors passed `--selftest` (exit 0) after these changes.
+Both flavors passed `--selftest` (exit 0) after these changes, which shipped in
+[v0.8.0](https://github.com/v2matosevic/WinSnipper/releases/tag/v0.8.0).
 
 # Capture latency, 2026-09-11
 

@@ -27,6 +27,13 @@ public partial class SnipOverlay : Window
     private Point _startPx;
     private Point _curPx;
 
+    // The dim is one reused geometry: even-odd over [whole overlay, selection]
+    // paints exactly what a boolean Exclude painted, without asking WPF to
+    // combine two rectangles and allocate three objects on every mouse move
+    // across a 5760-pixel-wide overlay.
+    private readonly RectangleGeometry _dimOuter = new();
+    private readonly RectangleGeometry _dimHole = new();
+
     // Hover target for Window/Screen modes, in physical screen px.
     private Int32Rect? _hover;
     private List<Int32Rect>? _windows; // top-level window rects, topmost first
@@ -57,6 +64,10 @@ public partial class SnipOverlay : Window
             Background = Brushes.Transparent; // after InitializeComponent — XAML sets Black
         IsOpen = true;
         Closed += (_, _) => IsOpen = false;
+        var dim = new GeometryGroup { FillRule = FillRule.EvenOdd };
+        dim.Children.Add(_dimOuter);
+        dim.Children.Add(_dimHole);
+        DimPath.Data = dim;
         _vs = virtualScreenPx;
         _live = live;
         if (live)
@@ -313,10 +324,16 @@ public partial class SnipOverlay : Window
 
     private void UpdateDim(Rect? selection)
     {
-        var full = new RectangleGeometry(new Rect(0, 0, ActualWidth, ActualHeight));
-        DimPath.Data = selection is { } r
-            ? new CombinedGeometry(GeometryCombineMode.Exclude, full, new RectangleGeometry(r))
-            : full;
+        var full = new Rect(0, 0, ActualWidth, ActualHeight);
+        if (_dimOuter.Rect != full) _dimOuter.Rect = full; // only the hole moves during a drag
+        if (selection is not { } r)
+        {
+            _dimHole.Rect = Rect.Empty;
+            return;
+        }
+        // A hole reaching past the overlay would invert under even-odd.
+        r.Intersect(full);
+        _dimHole.Rect = r.IsEmpty ? Rect.Empty : r;
     }
 
     private Point ToDip(Point px, double scale) =>

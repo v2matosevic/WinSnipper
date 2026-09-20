@@ -1,6 +1,6 @@
 ﻿# Changelog
 
-## Unreleased
+## 0.8.0 — 2026-09-20
 
 Nothing else should be able to answer the capture hotkey, and a busy machine
 should not be the reason a screenshot takes seconds.
@@ -38,6 +38,11 @@ should not be the reason a screenshot takes seconds.
 - **The PNG is written in the background.** The thumbnail appears as soon as
   the snip exists; anything that hands the file to someone else — dragging it
   out, the editor, Explorer — waits for the write first.
+- **Dragging a selection is cheaper.** The dimmed area around the selection was
+  a boolean geometry subtraction rebuilt from scratch on every mouse move
+  across a 5760-pixel-wide overlay. It is now one reused even-odd geometry, in
+  which only the selection rectangle moves: pixel-for-pixel identical output,
+  4.4× less work and 5× less garbage per move.
 
 ## 0.7.0 — 2026-09-11
 
