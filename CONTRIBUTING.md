@@ -41,6 +41,12 @@ For capture performance changes, run:
 pwsh -NoProfile -File tools\measure-capture.ps1
 ```
 
+For shortcut dispatch and overlay lifecycle changes, also run
+`pwsh -NoProfile -File tools\test-hotkey.ps1`. It checks worker dispatch,
+repeat/release suppression, queued-request coalescing, boost expiry and
+prepared-overlay pixel equivalence without installing hooks, sending input,
+showing windows or touching the clipboard.
+
 This compares current capture source with the pre-optimization baseline in a
 temporary .NET 8 harness using the app's DPI manifest. It captures the desktop
 in memory, opens no windows, sends no input and saves no screenshots. It checks

@@ -1,5 +1,78 @@
 ﻿# Capture latency under load, 2026-09-20
 
+## Follow-up, 2026-09-21
+
+The previous release did not eliminate the symptoms. The running 0.8.0
+process logged a snip at 15:35:44 with input age 1063 ms, dispatch 1124.9 ms,
+capture 4552.8 ms, construction 18711.0 ms and render 22271.7 ms. A later entry
+from that old process recorded a 428118.2 ms render stage. These cumulative
+timings establish severe stalls, but do not distinguish scheduling, paging,
+GDI and WPF as the full cause.
+
+This follow-up fixes the following verified code defects:
+
+- Hotkey subscribers ran synchronously inside the native callback, taking a
+  priority-management lock, changing process priority, creating a timer and
+  queuing WPF work. Subscribers now run on workers, following Microsoft's
+  [hook guidance](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelkeyboardproc).
+  System-wide scheduling/GC stalls can still delay a managed hook.
+- Recovery depended on a five-minute WPF timer. A native 15-second timer now
+  runs on the hook thread; resume/unlock post directly there. Replacement is
+  installed before removal, preserving the old hook if installation fails.
+- Held keys could queue repeated captures. Repeats and corresponding releases
+  are now swallowed, with one pending UI request per operation.
+- Expired priority scopes could decrement a later capture's boost count.
+  Generation checks isolate expired scopes and stale timer callbacks.
+- Overlay construction happened on every press. One empty shell is prepared
+  while idle, retaining no HWND or screenshot. Bounds and pixels refresh on
+  capture; modal selection stays unchanged. Unshown construction no longer
+  marks selection open. Cleanup restores thumbnails and closes the overlay;
+  capture failures reach existing error reporting instead of returning silently.
+
+Validation on Olympus:
+
+- `tools/test-hotkey.ps1`: passed blocked-subscriber isolation, repeat/release
+  suppression, timestamp preservation, recording dispatch, request coalescing
+  and reset, boost expiry, monitor-bound refresh and byte-identical offscreen
+  prepared/fresh renders. Final preparation 308.7 ms at idle; pixel attachment
+  0.6 ms. No hooks installed, desktop input, visible windows or clipboard writes.
+- `tools/measure-capture.ps1`: frozen pixels, dimensions, opacity, crop/PNG and
+  resource checks passed. Current median 57.6 ms over 12 warm samples at
+  5760 x 1080. GDI handles 5/5; process handles 269/267 after retention checks.
+  Capture source is unchanged here; this is not a new speedup measurement.
+- `tools/winsnipper.ps1 build -Flavor both` passed; both local executables
+  passed `--selftest` sequentially, exit 0. Updated OCR app restarted as PID
+  25140 at 16:37:01. This initial local validation retained version 0.8.0.
+- First publish failed because an in-tree validation build exposed generated
+  C# to the project glob. Its generated directory was moved to system temp,
+  and the next publish passed. The regression harness builds in temp.
+
+Confidence is high in the covered fixes and installation, moderate in resolving
+the full reported behavior. Real Win+Shift+S/PrintScreen under normal workload
+remains a maintainer check. Preparation timings do not measure visible opening
+latency, and eliminating every system-load stall has not been established.
+
+### Version 0.8.1 release verification, 2026-09-21
+
+The release build was produced with `tools/winsnipper.ps1 build -Flavor both`.
+Both versioned executables passed `--selftest` sequentially (exit 0), and the
+headless shortcut/overlay harness passed again with zero build warnings/errors.
+Its preparation/attachment measurements were 598.1/0.8 ms; they are not total
+visible-opening timings. The unchanged capture benchmark result above is reused.
+The locally installed OCR process was verified as PID 42112, version 0.8.1.0.
+
+Release artifact SHA256:
+
+```text
+WinSnipper.exe     7853E3635A33C20A47FF78395A10F1E37C7568F61D6152D75C002E1A56924897
+WinSnipper-OCR.exe C1D1A06F0C43A8FF7FBE8490124D7B598CD1C69B0743D46A53B4EC4A9AFE2A3A
+```
+
+Winget manifests target v0.8.1 and the lite artifact hash above. Submission to
+the winget community repository remains pending the maintainer's Microsoft CLA.
+
+## Previous investigation, 2026-09-20
+
 This update addresses two reported symptoms: the Windows Snipping Tool opening
 instead of WinSnipper, and captures being "close to impossible" while the
 machine is busy. They share a cause.

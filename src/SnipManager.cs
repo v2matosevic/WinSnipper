@@ -8,6 +8,14 @@ namespace WinSnipper;
 public sealed class SnipManager
 {
     private bool _active;
+    private SnipOverlay? _prepared;
+
+    public void PrepareOverlay()
+    {
+        if (_active || SnipOverlay.IsOpen || _prepared is not null) return;
+        try { _prepared = SnipOverlay.PrepareScreenshot(); }
+        catch (Exception ex) { Util.LogCrash("Prepare overlay", ex); }
+    }
 
     public void StartSnip() => StartSnip(new PerformanceTrace("snip-menu"));
 
@@ -15,6 +23,7 @@ public sealed class SnipManager
     {
         if (_active || SnipOverlay.IsOpen) { trace.Finish("already-open"); return; }
         _active = true;
+        SnipOverlay? overlay = null;
         try
         {
             // Hide existing thumbnails so they are not baked into the new screenshot.
@@ -26,14 +35,16 @@ public sealed class SnipManager
                 (shot, bounds) = ScreenCapture.CaptureVirtualScreen();
                 trace.Mark("captured");
             }
-            catch
+            catch (Exception ex)
             {
                 trace.Finish("capture-failed");
-                FloatingThumb.SetAllVisible(true);
-                return;
+                Util.LogCrash("Screenshot capture", ex);
+                throw;
             }
 
-            var overlay = new SnipOverlay(shot, bounds);
+            overlay = _prepared ?? SnipOverlay.PrepareScreenshot();
+            _prepared = null;
+            overlay.SetScreenshot(shot, bounds);
             trace.TrackWindow(overlay);
             bool? ok = overlay.ShowDialog();
             FloatingThumb.SetAllVisible(true);
@@ -63,8 +74,15 @@ public sealed class SnipManager
         }
         finally
         {
-            trace.Finish("finished-before-render");
-            _active = false;
+            try { overlay?.Close(); }
+            finally
+            {
+                _active = false;
+                FloatingThumb.SetAllVisible(true);
+                trace.Finish("finished-before-render");
+                System.Windows.Application.Current.Dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.ApplicationIdle, (Action)PrepareOverlay);
+            }
         }
     }
 

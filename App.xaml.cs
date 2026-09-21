@@ -13,6 +13,8 @@ public partial class App : Application
     private TrayIcon? _tray;
     private readonly SnipManager _snips = new();
     private readonly Recording.RecordingManager _recordings = new();
+    private int _snipPending;
+    private int _recordPending;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -104,7 +106,11 @@ public partial class App : Application
 
         // Pay the first-capture cost now, at idle, rather than on the first
         // hotkey press.
-        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)Warmup.Run);
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)(() =>
+        {
+            Warmup.Run();
+            _snips.PrepareOverlay();
+        }));
 
         _ = CheckForUpdatesLoop();
         _ = AutoCleanup.RunLoopAsync();
@@ -114,18 +120,32 @@ public partial class App : Application
 
     private void QueueCapture(string operation, uint timestamp, Action<PerformanceTrace> action)
     {
+        ref int pending = ref (operation == "snip" ? ref _snipPending : ref _recordPending);
+        if (Interlocked.Exchange(ref pending, 1) != 0) return;
         var trace = new PerformanceTrace(operation, timestamp);
-        // Raised here, on the hook thread, so the boost is already in place
-        // while the dispatcher is still competing for a core with whatever is
-        // making the machine feel slow in the first place.
+        // This runs on a worker, never inside the low-level keyboard callback.
         var boost = Responsiveness.Interactive();
-        Dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
+        try
         {
-            trace.Mark("dispatched");
-            try { action(trace); }
-            catch { trace.Finish("failed"); throw; }
-            finally { boost.Dispose(); }
-        }));
+            Dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
+            {
+                trace.Mark("dispatched");
+                try { action(trace); }
+                catch { trace.Finish("failed"); throw; }
+                finally
+                {
+                    boost.Dispose();
+                    if (operation == "snip") Interlocked.Exchange(ref _snipPending, 0);
+                    else Interlocked.Exchange(ref _recordPending, 0);
+                }
+            }));
+        }
+        catch
+        {
+            boost.Dispose();
+            Interlocked.Exchange(ref pending, 0);
+            throw;
+        }
     }
 
     private void InstallCrashHandlers()
@@ -160,19 +180,15 @@ public partial class App : Application
     // and on resume/unlock.
     private void StartHookWatchdog()
     {
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
-        timer.Tick += (_, _) => _hook?.Reinstall();
-        timer.Start();
-
         Microsoft.Win32.SystemEvents.PowerModeChanged += (_, e) =>
         {
             if (e.Mode == Microsoft.Win32.PowerModes.Resume)
-                Dispatcher.BeginInvoke(() => _hook?.Reinstall());
+                _hook?.Reinstall();
         };
         Microsoft.Win32.SystemEvents.SessionSwitch += (_, e) =>
         {
             if (e.Reason == Microsoft.Win32.SessionSwitchReason.SessionUnlock)
-                Dispatcher.BeginInvoke(() => _hook?.Reinstall());
+                _hook?.Reinstall();
         };
     }
 

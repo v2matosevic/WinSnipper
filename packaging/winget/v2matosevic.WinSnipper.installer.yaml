@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: v2matosevic.WinSnipper
-PackageVersion: 0.8.0
+PackageVersion: 0.8.1
 Platform:
 - Windows.Desktop
 MinimumOSVersion: 10.0.17763.0
@@ -12,7 +12,7 @@ Dependencies:
   - PackageIdentifier: Microsoft.DotNet.DesktopRuntime.8
 Installers:
 - Architecture: x64
-  InstallerUrl: https://github.com/v2matosevic/WinSnipper/releases/download/v0.8.0/WinSnipper.exe
-  InstallerSha256: D37AB87E62FB0EAEAD7033BB916DD12EC7E63D27F59917F2137C6780233361DF
+  InstallerUrl: https://github.com/v2matosevic/WinSnipper/releases/download/v0.8.1/WinSnipper.exe
+  InstallerSha256: 7853E3635A33C20A47FF78395A10F1E37C7568F61D6152D75C002E1A56924897
 ManifestType: installer
 ManifestVersion: 1.6.0

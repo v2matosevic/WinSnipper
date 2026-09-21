@@ -89,17 +89,28 @@ survive the reboot and suppress the next logon's start.
 
 ## Decisions worth knowing
 
+- **2026-09-21 hotkey hardening:** application hotkey subscribers run on workers;
+  the callback only matches, suppresses and queues. A native 15-second timer
+  on the hook thread replaces the hook even if WPF is blocked. Replacement is
+  installed before the old hook is removed. Key repeats and matching releases
+  are swallowed; one pending UI request per operation prevents a backlog.
+- **Prepare the next screenshot overlay while idle:** retain one unshown WPF
+  shell, with no HWND and no screenshot. Refresh its monitor bounds and image
+  on capture. `IsOpen` is set when the HWND is created, not by constructing an
+  unshown shell. Capture cleanup closes the overlay and restores thumbnails.
+  This removes BAML/control construction from the warm shortcut path while
+  retaining the existing modal selection behavior.
+
 - **Hotkey override**: `RegisterHotKey` cannot claim Win+Shift+S (the shell owns
   it). A low-level hook fires first and can swallow it. The override exists
   only while the app runs.
 - **The keyboard hook must never live on the UI thread.** Windows delivers
   LL hook callbacks on the thread that installed the hook. Behind a busy WPF
-  UI thread the callback eventually exceeds `LowLevelHooksTimeout` (300 ms by
-  default), and Windows then does two things: it delivers the keystroke to the
-  shell regardless — the built-in Snipping Tool opening over WinSnipper is
-  exactly this — and after repeat offences it unhooks us entirely. That is
-  what `KeyboardHook.Reinstall()` and its 5-minute timer were papering over.
-  A dedicated thread that only pumps this callback answers in microseconds.
+  UI thread the callback can exceed `LowLevelHooksTimeout`; Windows passes
+  the key onward and can silently remove the hook. Keep application subscribers
+  off that thread too. The dedicated pump and worker dispatch reduce exposure;
+  the native recovery timer covers silent removal. System-wide stalls can
+  still delay managed callbacks, so this is not an absolute timing guarantee.
 - **PrintScreen is a setting, not a hotkey.** Swallowing the key is not enough
   on Windows 11, because the shell's PrintScreen → Snipping Tool binding lives
   in the registry. `SnippingTool.cs` turns it off and records what it replaced;

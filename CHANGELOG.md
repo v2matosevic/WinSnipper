@@ -1,5 +1,25 @@
 ﻿# Changelog
 
+## 0.8.1 — 2026-09-21
+
+More reliable screenshot shortcuts and less work before the selection overlay opens.
+
+- Move capture dispatch and priority management out of the Windows keyboard
+  callback so application work cannot hold up its response.
+- Recover the hook every 15 seconds independently of the UI, and directly on
+  resume/unlock. Install the replacement before removing the previous hook.
+- Suppress held-key repeats and matching releases; coalesce pending capture
+  requests so repeated presses do not build a queue.
+- Prepare one empty screenshot overlay while idle, then attach fresh pixels
+  and monitor bounds on capture. It retains no screenshot or native window.
+- Fix expired priority boosts interfering with later captures, and restore
+  thumbnails/overlay state on failures. Capture errors are reported rather
+  than silently ignored.
+- Add headless regression coverage for dispatch, repeats, queueing, boost
+  expiry and prepared-overlay rendering. Both editions pass their screenshot,
+  recording and trim smoke tests. Full shortcut latency under heavy load still
+  needs hands-on verification; see [evidence and limits](docs/PERFORMANCE.md).
+
 ## 0.8.0 — 2026-09-20
 
 Nothing else should be able to answer the capture hotkey, and a busy machine

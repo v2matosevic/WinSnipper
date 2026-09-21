@@ -13,16 +13,19 @@ namespace WinSnipper;
 /// load-bearing. Windows delivers LL hook callbacks on the thread that
 /// installed the hook, so a hook installed from the WPF UI thread queues
 /// behind every render, window construction and GC pause. Once a callback
-/// exceeds LowLevelHooksTimeout (300 ms by default) Windows stops waiting,
-/// delivers the keystroke to the shell anyway — Snipping Tool opens on top of
-/// us — and silently unhooks after repeat offences. A thread that does nothing
-/// but answer this callback replies in microseconds however busy the app is.
+/// exceeds LowLevelHooksTimeout Windows passes the keystroke onward and can
+/// silently remove the hook. Keep application work on workers, not callbacks.
+/// System-wide scheduling/GC stalls can still delay a managed hook, so the
+/// message pump also periodically replaces it without depending on the UI.
 /// </summary>
 public sealed class KeyboardHook : IDisposable
 {
     private const int WH_KEYBOARD_LL = 13;
     private const int WM_KEYDOWN = 0x0100;
     private const int WM_SYSKEYDOWN = 0x0104;
+    private const int WM_KEYUP = 0x0101;
+    private const int WM_SYSKEYUP = 0x0105;
+    private const int WM_TIMER = 0x0113;
     private const int WM_USER = 0x0400;
     private const int WM_APP_REINSTALL = 0x8001; // WM_APP + 1, posted to the hook thread
     private const uint PM_NOREMOVE = 0x0000;
@@ -48,6 +51,7 @@ public sealed class KeyboardHook : IDisposable
     private IntPtr _hookId;
     private Exception? _startError;
     private volatile bool _disposed;
+    private readonly bool[] _swallowed = new bool[256];
 
     public event Action<uint>? HotkeyPressed;
     public event Action<uint>? RecordHotkeyPressed;
@@ -64,6 +68,7 @@ public sealed class KeyboardHook : IDisposable
 
     public KeyboardHook()
     {
+        _ = Settings.Current; // Load settings before installing a system-wide callback.
         _proc = Callback;
         _thread = new Thread(ThreadMain)
         {
@@ -104,14 +109,19 @@ public sealed class KeyboardHook : IDisposable
 
         if (_hookId == IntPtr.Zero) return;
 
+        // Recovery must run even when the UI dispatcher is stuck. No polling
+        // thread or simulated keystrokes: one native timer on this message pump.
+        var timer = SetTimer(IntPtr.Zero, UIntPtr.Zero, 15000, IntPtr.Zero);
         // WM_QUIT (posted by Dispose) returns 0 and ends the loop; -1 is an error.
         while (true)
         {
             int got = GetMessage(out var msg, IntPtr.Zero, 0, 0);
             if (got <= 0) break;
-            if (msg.message == WM_APP_REINSTALL)
+            if (msg.message == WM_APP_REINSTALL || msg.message == WM_TIMER)
                 ReinstallHere();
         }
+
+        if (timer != UIntPtr.Zero) KillTimer(IntPtr.Zero, timer);
 
         if (_hookId != IntPtr.Zero)
         {
@@ -123,9 +133,14 @@ public sealed class KeyboardHook : IDisposable
     private void ReinstallHere()
     {
         if (_disposed) return;
-        if (_hookId != IntPtr.Zero)
-            UnhookWindowsHookEx(_hookId);
-        _hookId = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
+        // Keep the old hook if replacement fails, and leave no unhooked gap.
+        var replacement = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
+        if (replacement == IntPtr.Zero) return;
+        var previous = _hookId;
+        _hookId = replacement;
+        if (previous != IntPtr.Zero) UnhookWindowsHookEx(previous);
+        for (int vk = 0; vk < _swallowed.Length; vk++)
+            if (_swallowed[vk] && !IsDown(vk)) _swallowed[vk] = false;
     }
 
     private IntPtr Callback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -134,10 +149,16 @@ public sealed class KeyboardHook : IDisposable
             return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
         int msg = wParam.ToInt32();
+        uint vk = (uint)Marshal.ReadInt32(lParam, OffsetVkCode);
+        if (vk < _swallowed.Length && _swallowed[vk])
+        {
+            if (msg == WM_KEYUP || msg == WM_SYSKEYUP) _swallowed[vk] = false;
+            // Suppress repeats and the matching release, even if modifiers
+            // were released first. One physical press means one capture.
+            return (IntPtr)1;
+        }
         if (msg != WM_KEYDOWN && msg != WM_SYSKEYDOWN)
             return CallNextHookEx(_hookId, nCode, wParam, lParam);
-
-        uint vk = (uint)Marshal.ReadInt32(lParam, OffsetVkCode);
 
         if (CaptureInterceptor is { } capture && capture(vk))
             return (IntPtr)1;
@@ -155,7 +176,7 @@ public sealed class KeyboardHook : IDisposable
         if (printScreen && !IsDown(VK_LWIN) && !IsDown(VK_RWIN)
             && !IsDown(VK_SHIFT) && !IsDown(VK_CONTROL) && !IsDown(VK_MENU))
         {
-            HotkeyPressed?.Invoke(time);
+            Dispatch(vk, time, recording: false);
             return (IntPtr)1;
         }
 
@@ -168,18 +189,34 @@ public sealed class KeyboardHook : IDisposable
                 s.HotkeyVk, s.ModWin, s.ModShift, s.ModCtrl, s.ModAlt))
         {
             SuppressStartMenu(s.ModWin);
-            HotkeyPressed?.Invoke(time);
+            Dispatch(vk, time, recording: false);
             return (IntPtr)1; // swallow
         }
         if (Matches(vk, win, shift, ctrl, alt,
                 s.RecHotkeyVk, s.RecModWin, s.RecModShift, s.RecModCtrl, s.RecModAlt))
         {
             SuppressStartMenu(s.RecModWin);
-            RecordHotkeyPressed?.Invoke(time);
+            Dispatch(vk, time, recording: true);
             return (IntPtr)1;
         }
 
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
+    }
+
+    private void Dispatch(uint vk, uint timestamp, bool recording)
+    {
+        if (vk < _swallowed.Length) _swallowed[vk] = true;
+        // Never run application subscribers inside the Windows hook timeout.
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            if (_disposed) return;
+            try
+            {
+                if (recording) RecordHotkeyPressed?.Invoke(timestamp);
+                else HotkeyPressed?.Invoke(timestamp);
+            }
+            catch (Exception ex) { Util.LogCrash("Hotkey dispatch", ex); }
+        });
     }
 
     private static bool Matches(uint vk, bool win, bool shift, bool ctrl, bool alt,
@@ -225,6 +262,12 @@ public sealed class KeyboardHook : IDisposable
     }
 
     private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern UIntPtr SetTimer(IntPtr hwnd, UIntPtr id, uint interval, IntPtr callback);
+
+    [DllImport("user32.dll")]
+    private static extern bool KillTimer(IntPtr hwnd, UIntPtr id);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MSG

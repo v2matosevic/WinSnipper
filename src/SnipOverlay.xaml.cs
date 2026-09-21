@@ -19,7 +19,7 @@ public partial class SnipOverlay : Window
 {
     private enum PickMode { Region, Window, Screen }
 
-    private readonly Int32Rect _vs;
+    private Int32Rect _vs;
     private readonly bool _live;
     private PickMode _mode = PickMode.Region;
     private bool _dragging;
@@ -62,8 +62,7 @@ public partial class SnipOverlay : Window
         InitializeComponent();
         if (live)
             Background = Brushes.Transparent; // after InitializeComponent — XAML sets Black
-        IsOpen = true;
-        Closed += (_, _) => IsOpen = false;
+        Closed += (_, _) => { IsOpen = false; ScreenImage.Source = null; };
         var dim = new GeometryGroup { FillRule = FillRule.EvenOdd };
         dim.Children.Add(_dimOuter);
         dim.Children.Add(_dimHole);
@@ -89,8 +88,28 @@ public partial class SnipOverlay : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+        IsOpen = true;
         var hwnd = new WindowInteropHelper(this).Handle;
         MoveWindow(hwnd, _vs.X, _vs.Y, _vs.Width, _vs.Height, false);
+    }
+
+    /// <summary>Parse and lay out an empty screenshot overlay while idle.
+    /// No HWND, desktop pixels or visible window are retained.</summary>
+    internal static SnipOverlay PrepareScreenshot()
+    {
+        var overlay = new SnipOverlay(ScreenCapture.VirtualScreenBounds(), live: false);
+        if (overlay.Content is UIElement content)
+        {
+            content.Measure(new Size(400, 300));
+            content.Arrange(new Rect(0, 0, 400, 300));
+        }
+        return overlay;
+    }
+
+    internal void SetScreenshot(BitmapSource screenshot, Int32Rect bounds)
+    {
+        _vs = bounds; // Monitors may have changed since preparation.
+        ScreenImage.Source = screenshot;
     }
 
     /// <summary>

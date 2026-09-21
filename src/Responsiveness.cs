@@ -21,6 +21,7 @@ public static class Responsiveness
 
     private static int _depth;
     private static Timer? _expiry;
+    private static int _generation;
 
     /// <summary>Raises priority now and restores it when the scope is disposed.</summary>
     public static IDisposable Interactive()
@@ -30,16 +31,30 @@ public static class Responsiveness
             if (_depth++ == 0)
                 Apply(ProcessPriorityClass.High);
             _expiry?.Dispose();
-            _expiry = new Timer(_ => Drop(), null, MaxBoost, Timeout.InfiniteTimeSpan);
+            int generation = ++_generation;
+            _expiry = new Timer(_ => Expire(generation), null, MaxBoost, Timeout.InfiniteTimeSpan);
+            return new Scope(generation);
         }
-        return new Scope();
     }
 
-    private static void Release()
+    private static void Release(int generation)
     {
         lock (Gate)
         {
+            // An expired scope must not decrement a newer boost's count.
+            if (generation <= _expiredGeneration || _depth == 0) return;
             if (--_depth > 0) return;
+            Drop();
+        }
+    }
+
+    private static int _expiredGeneration;
+
+    private static void Expire(int generation)
+    {
+        lock (Gate)
+        {
+            if (generation != _generation) return; // disposed timer already queued
             Drop();
         }
     }
@@ -49,6 +64,7 @@ public static class Responsiveness
         lock (Gate)
         {
             _depth = 0;
+            _expiredGeneration = _generation;
             _expiry?.Dispose();
             _expiry = null;
             Apply(ProcessPriorityClass.Normal);
@@ -63,7 +79,7 @@ public static class Responsiveness
         catch { }
     }
 
-    private sealed class Scope : IDisposable
+    private sealed class Scope(int generation) : IDisposable
     {
         private bool _done;
 
@@ -71,7 +87,7 @@ public static class Responsiveness
         {
             if (_done) return;
             _done = true;
-            Release();
+            Release(generation);
         }
     }
 }
