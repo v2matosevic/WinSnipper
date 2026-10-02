@@ -65,6 +65,7 @@ For editor or trim-window UI changes, render every state to PNGs:
 ```powershell
 pwsh -NoProfile -File tools\ui-shots.ps1           # -> artifacts\ui-shots\
 pwsh -NoProfile -File tools\ui-shots.ps1 -Readme   # also refreshes docs\images\
+pwsh -NoProfile -File tools\ui-shots.ps1 -HistoryOnly # focused history states and regressions
 ```
 
 It builds the app into a temp folder, shows the windows far off-screen (never

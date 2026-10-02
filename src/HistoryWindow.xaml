@@ -1,0 +1,138 @@
+<Window x:Class="WinSnipper.HistoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="WinSnipper capture history" Width="1000" Height="680" MinWidth="720" MinHeight="480"
+        WindowStyle="None" ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Ws.Chrome}" Foreground="{StaticResource Ws.Text}"
+        FontFamily="{StaticResource Ws.Font}" TextOptions.TextFormattingMode="Display"
+        PreviewKeyDown="Window_KeyDown">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="48" ResizeBorderThickness="6" GlassFrameThickness="0"
+                      CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+    <Window.Resources>
+        <Style TargetType="ToolTip" BasedOn="{StaticResource Ws.ToolTip}"/>
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource Ws.ScrollBar}"/>
+        <Style x:Key="Filter" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource Ws.TextDim}"/>
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="B" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="B" Property="Background" Value="{StaticResource Ws.Hover}"/></Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="B" Property="Background" Value="{StaticResource Ws.Group}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Ws.Text}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="B" Property="BorderBrush" Value="{StaticResource Ws.Accent}"/><Setter TargetName="B" Property="BorderThickness" Value="1"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="14,12"/>
+            <Setter Property="Margin" Value="0,0,0,3"/>
+            <Setter Property="Foreground" Value="{StaticResource Ws.Text}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="B" Background="Transparent" CornerRadius="8" BorderThickness="1"
+                                BorderBrush="Transparent" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="B" Property="Background" Value="{StaticResource Ws.Hover}"/></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="B" Property="Background" Value="{StaticResource Ws.Group}"/><Setter TargetName="B" Property="BorderBrush" Value="{StaticResource Ws.Accent}"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions><RowDefinition Height="48"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid Margin="20,0,0,0">
+            <TextBlock Text="Capture history" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Style="{StaticResource Ws.Caption}" Content="&#xE921;" Command="{x:Static SystemCommands.MinimizeWindowCommand}" ToolTip="Minimize"/>
+                <Button Style="{StaticResource Ws.CaptionMax}" Command="{x:Static SystemCommands.MaximizeWindowCommand}"/>
+                <Button Style="{StaticResource Ws.CaptionClose}" Command="{x:Static SystemCommands.CloseWindowCommand}"/>
+            </StackPanel>
+        </Grid>
+        <Grid Grid.Row="1" Margin="20,8,20,16">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <Border Background="{StaticResource Ws.Canvas}" BorderBrush="{StaticResource Ws.Rule}" BorderThickness="1" CornerRadius="8" Padding="12,9" Margin="0,0,12,0">
+                <Grid>
+                    <TextBox x:Name="SearchBox" Background="Transparent" Foreground="{StaticResource Ws.Text}" CaretBrush="{StaticResource Ws.Text}"
+                             BorderThickness="0" FontSize="13" TextChanged="Search_Changed" AutomationProperties.Name="Search captures"/>
+                    <TextBlock Text="Search by name or date" Foreground="{StaticResource Ws.TextDim}" IsHitTestVisible="False">
+                        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+            </Border>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <RadioButton x:Name="FilterAll" Content="All" Tag="all" GroupName="Kind" Style="{StaticResource Filter}" IsChecked="True" Checked="Filter_Changed"/>
+                <RadioButton x:Name="FilterScreenshots" Content="Screenshots" Tag="screenshots" GroupName="Kind" Style="{StaticResource Filter}" Checked="Filter_Changed"/>
+                <RadioButton x:Name="FilterRecordings" Content="Recordings" Tag="recordings" GroupName="Kind" Style="{StaticResource Filter}" Checked="Filter_Changed"/>
+            </StackPanel>
+        </Grid>
+        <Grid Grid.Row="2" Margin="20,0,20,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Grid>
+                <ListBox x:Name="Captures" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                         SelectionChanged="Capture_Selected" MouseDoubleClick="Capture_DoubleClick" AutomationProperties.Name="Saved captures">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Kind}" Foreground="{StaticResource Ws.TextDim}" FontSize="11" Margin="0,0,0,5"/>
+                                <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/>
+                                <TextBlock Text="{Binding Details}" FontSize="11" Foreground="{StaticResource Ws.TextDim}" Margin="0,5,0,0"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <StackPanel x:Name="EmptyState" VerticalAlignment="Center" Margin="20">
+                    <TextBlock x:Name="EmptyTitle" Text="No captures yet" FontSize="16" FontWeight="SemiBold" TextAlignment="Center"/>
+                    <TextBlock x:Name="EmptyHint" Text="New screenshots and recordings appear here." Foreground="{StaticResource Ws.TextDim}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Grid>
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Border Background="{StaticResource Ws.Canvas}" CornerRadius="10" BorderBrush="{StaticResource Ws.Rule}" BorderThickness="1" Padding="16">
+                    <Grid>
+                        <Image x:Name="Preview" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <TextBlock x:Name="PreviewMessage" Text="Select a capture to preview it" Foreground="{StaticResource Ws.TextDim}"
+                                   TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="320"/>
+                    </Grid>
+                </Border>
+                <StackPanel Grid.Row="1" Margin="0,16,0,12">
+                    <TextBlock x:Name="SelectedName" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="SelectedDetails" FontSize="12" Foreground="{StaticResource Ws.TextDim}" Margin="0,5,0,0" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <WrapPanel Grid.Row="2" Margin="0,0,0,6">
+                    <Button x:Name="OpenButton" Content="Open editor" Style="{StaticResource Ws.BtnAccent}" Tag="{StaticResource Ico.Pen}" Click="Open_Click" Margin="0,0,8,8" ToolTip="Open selected capture  (Enter)" IsEnabled="False"/>
+                    <Button x:Name="CopyButton" Content="Copy image" Style="{StaticResource Ws.BtnOutline}" Tag="{StaticResource Ico.Copy}" Click="Copy_Click" Margin="0,0,8,8" ToolTip="Copy selected capture  (Ctrl+C)" IsEnabled="False"/>
+                    <Button x:Name="FolderButton" Content="Show file" Style="{StaticResource Ws.Btn}" Click="Folder_Click" Margin="0,0,0,8" IsEnabled="False"/>
+                </WrapPanel>
+            </Grid>
+        </Grid>
+        <Border Grid.Row="3" BorderBrush="{StaticResource Ws.Rule}" BorderThickness="0,1,0,0" Padding="20,10">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="CountLabel" Text="Loading captures…" FontSize="12" Foreground="{StaticResource Ws.TextDim}"/>
+                    <TextBlock x:Name="Status" FontSize="12" Foreground="{StaticResource Ws.TextDim}" Margin="0,4,8,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="Refresh" Style="{StaticResource Ws.BtnOutline}" Click="Refresh_Click" ToolTip="Reload the save folder  (F5)"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

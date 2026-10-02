@@ -10,7 +10,7 @@ public sealed class TrayIcon : IDisposable
     private readonly NotifyIcon _icon;
     private readonly Icon _glyph;
 
-    public TrayIcon(Action onNewSnip, Action onNewRecording, Action onSettings, Action onExit)
+    public TrayIcon(Action onNewSnip, Action onNewRecording, Action onHistory, Action onSettings, Action onExit)
     {
         // Use the exe's embedded icon; fall back to the runtime-drawn glyph
         // (e.g. when running through the dotnet host).
@@ -27,6 +27,10 @@ public sealed class TrayIcon : IDisposable
         var recordItem = new ToolStripMenuItem("New recording") { ShortcutKeyDisplayString = Util.RecordHotkeyDisplay };
         recordItem.Click += (_, _) => onNewRecording();
         menu.Items.Add(recordItem);
+
+        var historyItem = new ToolStripMenuItem("Capture history");
+        historyItem.Click += (_, _) => onHistory();
+        menu.Items.Add(historyItem);
 
         var folderItem = new ToolStripMenuItem("Open snips folder");
         folderItem.Click += (_, _) => OpenSnipsFolder();
@@ -55,7 +59,7 @@ public sealed class TrayIcon : IDisposable
             Visible = true,
             ContextMenuStrip = menu,
         };
-        _icon.DoubleClick += (_, _) => OpenSnipsFolder();
+        _icon.DoubleClick += (_, _) => onHistory();
 
         Settings.Changed += () =>
         {

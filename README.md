@@ -115,6 +115,21 @@ killed or crashed hard — that is the signature to look for. Stack traces go to
    clipboard and exits — no confirmation dialogs, ever. Closing always saves
    silently and refreshes the clipboard, so what you paste is what you drew.
 
+### Capture history
+
+![Capture history with a saved screenshot selected](docs/images/history.png)
+
+Open **Capture history** from the tray menu, or double-click the tray icon.
+Browse screenshots and recordings from the current save folder, search by
+filename or date, and filter by type. Select a capture to preview it, then
+open the editor or trimmer, copy it, or show its file in Explorer. The list
+refreshes when files change.
+
+`Enter` opens the selected capture, `Ctrl+C` copies an image or recording file,
+`Ctrl+F` focuses search, and `F5` refreshes. Recordings saved elsewhere with
+Save as are available in the folder you chose. History does not change the
+existing automatic deletion setting.
+
 ### Editor shortcuts
 
 | Key | Does |
@@ -255,13 +270,14 @@ Ideas queued up — PRs welcome:
 - **Audio in recordings** — mic and/or system loopback (WASAPI)
 - **GIF export** — for the places MP4 can't go
 - **Color picker** — grab the hex of any pixel on screen
-- **Snip history** — browse recent snips from the tray
 - Highlighter pen, line tool
 - Re-editable annotations (select / move / delete individual shapes)
 
 ## Docs
 
 - [Architecture](docs/ARCHITECTURE.md) — component map and the decisions behind it
+- [Desktop integration proposal](docs/ECOSYSTEM-INTEGRATION.md) — improvements and a connected capture workflow for Hephaestus and Athena
+- [Capture history](docs/CAPTURE-HISTORY.md) — behavior, verification and delivery state
 - [Contributing](CONTRIBUTING.md) — build, smoke test, ground rules
 - [Changelog](CHANGELOG.md)
 - [Performance](docs/PERFORMANCE.md) — capture benchmark, opening timings,

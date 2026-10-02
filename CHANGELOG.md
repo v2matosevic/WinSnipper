@@ -1,5 +1,15 @@
 ﻿# Changelog
 
+## Unreleased
+
+- Add capture history from the tray menu or a double-click on the tray icon.
+  Browse screenshots and recordings, search names or dates, filter by type,
+  preview captures, reopen the editor/trimmer, copy and reveal files.
+- Refresh history when captures are saved, edited or removed; scan and decode
+  previews on workers, with virtualized list rows and inline file errors.
+- Add synthetic offscreen history renders and regression checks for filtering,
+  preview handoff, file ownership, folder scope and live refresh.
+
 ## 0.8.1 — 2026-09-21
 
 More reliable screenshot shortcuts and less work before the selection overlay opens.

@@ -32,6 +32,8 @@ KeyboardHook ────┤                       window/screen)   thumb)
 | `DarkWindow.cs` | Frameless-window plumbing for those two windows: dark DWM frame + rounded corners, min/max/close commands, and the maximized inset — `WindowChrome` maximizes to the work area *plus* the invisible resize frame, so without it the edges and caption buttons sit off screen. |
 | `SettingsWindow.xaml` | Hotkey recorder (both hotkeys) + preferences. |
 | `Settings.cs` | JSON persistence (`%APPDATA%\WinSnipper\settings.json`), `Settings.Current` + `Changed` event. |
+| `CaptureHistory.cs` | Reads PNG/MP4 metadata from the current save folder and its Recordings subfolder. Sorts by modification time; frozen, OnLoad image reads release the file before editing or cleanup. |
+| `HistoryWindow.xaml` | Capture history from the tray. Virtualized file list, name/date search, type filters, screenshot/video preview and existing editor/trim handoff. Folder scanning and decoding run on workers; a watcher debounces refreshes and a revision guards stale previews. |
 | `TrayIcon.cs` | WinForms `NotifyIcon`, menu, runtime-drawn fallback glyph. |
 | `StartupManager.cs` | HKCU `Run` key toggle. |
 | `Util.cs` | PNG save, clipboard retry wrappers (image / file / text), OCR (`Windows.Media.Ocr`, upscaled input, language fallback chain). |

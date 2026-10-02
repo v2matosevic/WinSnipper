@@ -1,5 +1,5 @@
 <#
-Renders the screenshot editor and the trim window to PNGs without opening
+Renders the screenshot editor, trim window and capture history to PNGs without opening
 anything on screen or sending input: an isolated build of the app, a throwaway
 WPF harness that shows the windows far off-screen (never activated, never in the
 taskbar) and captures them with RenderTargetBitmap. Content is a synthetic
@@ -13,9 +13,11 @@ Needs ffmpeg on PATH (it encodes the sample recording).
 [CmdletBinding()]
 param(
     [string]$Out,
-    [switch]$Readme
+    [switch]$Readme,
+    [switch]$HistoryOnly
 )
 $ErrorActionPreference = 'Stop'
+if ($HistoryOnly -and $Readme) { throw 'Use -Readme with the complete render, not -HistoryOnly.' }
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $Out) { $Out = Join-Path $root 'artifacts\ui-shots' }
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { throw 'ffmpeg must be on PATH; it encodes the sample recording.' }
@@ -71,6 +73,9 @@ static class Program
     static int Main(string[] args)
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        // The harness pumps frames instead of Application.Run. Programmatic
+        // control changes still need the same UI continuation context as real events.
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         app.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
             Source = new Uri("pack://application:,,,/WinSnipper;component/src/Theme.xaml"),
@@ -79,7 +84,12 @@ static class Program
         try
         {
             if (args[0] == "frames") Frames(args[1]);
-            else { Out = args[1]; Directory.CreateDirectory(Out); Editor(); Trim(args[2]); }
+            else
+            {
+                Out = args[1]; Directory.CreateDirectory(Out);
+                if (args[0] != "history") { Editor(); Trim(args[2]); }
+                History(args[2]);
+            }
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); code = 1; }
         // Exit without closing: the editor's close-time save would touch the clipboard.
@@ -222,6 +232,92 @@ static class Program
         t.GetMethod("UpdateTimeline", Priv)!.Invoke(w, null);
         Pump(300);
         Shot(w, "trim-min-error.png");
+    }
+
+    // ---------- capture history ----------
+
+    static void History(string video)
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "WinSnipper-history-fixture-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "Recordings"));
+        Directory.CreateDirectory(Path.Combine(dir, "unrelated"));
+        Save(Mock(1280, 760, dark: false), Path.Combine(dir, "Snip 2026-10-02 18-42-10.png"));
+        Save(Mock(900, 560, dark: true), Path.Combine(dir, "Snip 2026-10-02 18-35-26.png"));
+        Save(Mock(320, 180, dark: false), Path.Combine(dir, "Snip 2026-10-01 16-10-00.png"));
+        File.Copy(video, Path.Combine(dir, "Recordings", "Recording 2026-10-02 18-38-12.mp4"), true);
+        Save(Mock(320, 180, dark: false), Path.Combine(dir, "_selftest.png"));
+        Save(Mock(320, 180, dark: false), Path.Combine(dir, "unrelated", "hidden.png"));
+        var newest = Path.Combine(dir, "Snip 2026-10-02 18-42-10.png");
+        File.SetLastWriteTime(newest, DateTime.Now.AddMinutes(1));
+
+        var w = New("WinSnipper.HistoryWindow", dir);
+        Show(w);
+        var list = (ListBox)w.FindName("Captures");
+        var preview = (Image)w.FindName("Preview");
+        WaitFor(() => list.Items.Count == 4 && preview.Source != null, "History did not load its screenshots and recording.");
+        Assert(((TextBlock)w.FindName("SelectedName")).Text == "Snip 2026-10-02 18-42-10", "Newest capture was not selected.");
+        Shot(w, "history.png");
+        Shot(w, "readme-history.png", rounded: true);
+
+        // Loading a full-resolution image must freeze it and release its file.
+        var history = Assembly.Load("WinSnipper").GetType("WinSnipper.CaptureHistory", true)!;
+        var full = (BitmapSource)history.GetMethod("LoadImage")!.Invoke(null, new object[] { newest, 0 });
+        Assert(full.IsFrozen && full.PixelWidth == 1280 && full.PixelHeight == 760, "History changed the export dimensions.");
+        using (File.Open(newest, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+        string tall = Path.Combine(dir, "unrelated", "tall.png");
+        Save(Mock(400, 2800, dark: false), tall);
+        var bounded = (BitmapSource)history.GetMethod("LoadImage")!.Invoke(null, new object[] { tall, 1400 });
+        Assert(bounded.PixelWidth <= 1400 && bounded.PixelHeight <= 1400, "A tall preview exceeded its memory bound.");
+
+        ((RadioButton)w.FindName("FilterRecordings")).IsChecked = true;
+        PumpUntil(() => preview.Source != null || ((TextBlock)w.FindName("PreviewMessage")).Text.StartsWith("Preview unavailable"), 12000);
+        Assert(list.Items.Count == 1 && preview.Source != null, "Recording preview failed: count=" + list.Items.Count + ", message=" + ((TextBlock)w.FindName("PreviewMessage")).Text + ", error=" + ((TextBlock)w.FindName("PreviewMessage")).ToolTip);
+        Assert(((Button)w.FindName("OpenButton")).Content.ToString() == "Open trimmer", "A recording did not route to the trimmer.");
+        Assert(((Button)w.FindName("CopyButton")).Content.ToString() == "Copy file", "A recording did not use file copy.");
+        Shot(w, "history-recording.png");
+        w.Width = 720; w.Height = 480;
+        Pump(200);
+        Shot(w, "history-min.png");
+
+        ((RadioButton)w.FindName("FilterAll")).IsChecked = true;
+        var search = (TextBox)w.FindName("SearchBox");
+        search.Text = "2026-10-01";
+        PumpUntil(() => list.Items.Count == 1 && preview.Source != null, 12000);
+        Assert(list.Items.Count == 1 && preview.Source != null, "History name/date search failed: count=" + list.Items.Count + ", message=" + ((TextBlock)w.FindName("PreviewMessage")).Text + ", error=" + ((TextBlock)w.FindName("PreviewMessage")).ToolTip);
+        Shot(w, "history-search.png");
+        search.Text = "no such capture";
+        Pump(100);
+        Assert(list.Items.Count == 0 && !((Button)w.FindName("OpenButton")).IsEnabled, "An empty search left stale capture actions.");
+        Shot(w, "history-no-matches.png");
+
+        search.Text = "";
+        int before = list.Items.Count;
+        Save(Mock(400, 240, dark: false), Path.Combine(dir, "Snip watcher.png"));
+        WaitFor(() => list.Items.Count == before + 1, "New captures did not refresh automatically.");
+        File.WriteAllText(Path.Combine(dir, "Snip broken.png"), "not an image");
+        search.Text = "broken";
+        WaitFor(() => list.Items.Count == 1 && ((TextBlock)w.FindName("PreviewMessage")).Text.StartsWith("Preview unavailable"), "A corrupt capture did not report a preview error.");
+        Shot(w, "history-unreadable.png");
+        w.Hide();
+
+        string empty = Path.Combine(dir, "empty");
+        Directory.CreateDirectory(empty);
+        var emptyWindow = New("WinSnipper.HistoryWindow", empty);
+        Show(emptyWindow);
+        WaitFor(() => ((TextBlock)emptyWindow.FindName("CountLabel")).Text == "0 captures", "Empty history failed.");
+        Shot(emptyWindow, "history-empty.png");
+        Console.WriteLine("History checks passed: scope, sort, full-resolution image/file release, filters, search, video preview, empty/error state and live refresh.");
+    }
+
+    static void Assert(bool condition, string message)
+    {
+        if (!condition) throw new InvalidOperationException(message);
+    }
+
+    static void WaitFor(Func<bool> done, string message)
+    {
+        PumpUntil(done, 12000);
+        Assert(done(), message);
     }
 
     // ---------- helpers ----------
@@ -377,10 +473,11 @@ $exe = Join-Path $scratch 'h\UiShots.exe'
 & $exe frames (Join-Path $scratch 'frames')
 if ($LASTEXITCODE -ne 0) { throw 'Frame rendering failed.' }
 $video = Join-Path $scratch 'Recording 2026-09-11 14-40-12.mp4'
-& ffmpeg -hide_banner -loglevel error -y -framerate 10 -i (Join-Path $scratch 'frames\f%03d.png') -c:v libx264 -r 30 -g 30 -pix_fmt yuv420p $video
+& ffmpeg -hide_banner -loglevel error -y -framerate 10 -i (Join-Path $scratch 'frames\f%03d.png') -c:v libx264 -threads 4 -r 30 -g 30 -pix_fmt yuv420p $video
 if ($LASTEXITCODE -ne 0) { throw 'ffmpeg failed.' }
 
-& $exe render $Out $video
+$renderMode = if ($HistoryOnly) { 'history' } else { 'render' }
+& $exe $renderMode $Out $video
 if ($LASTEXITCODE -ne 0) { throw 'Rendering failed; see the exception above.' }
 
 if ($Readme) {

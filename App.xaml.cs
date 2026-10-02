@@ -83,6 +83,7 @@ public partial class App : Application
         _tray = new TrayIcon(
             onNewSnip: () => SnipFromMenu(),
             onNewRecording: () => RecordFromMenu(),
+            onHistory: ShowHistory,
             onSettings: ShowSettings,
             onExit: QuitFromTray);
         _recordings.OnError = msg => _tray?.ShowError(msg);
@@ -286,6 +287,21 @@ public partial class App : Application
     {
         await Task.Delay(300);
         _recordings.Toggle();
+    }
+
+    private HistoryWindow? _history;
+
+    private void ShowHistory()
+    {
+        if (_history is { IsLoaded: true })
+        {
+            if (_history.WindowState == WindowState.Minimized) _history.WindowState = WindowState.Normal;
+            _history.Activate();
+            return;
+        }
+        _history = new HistoryWindow();
+        _history.Show();
+        _history.Activate();
     }
 
     private SettingsWindow? _settings;
