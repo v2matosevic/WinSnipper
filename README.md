@@ -17,7 +17,7 @@ MP4 → trim → paste as a file.**
 
 Single-file exe. .NET 8 + WPF, no external packages — video encoding is
 hand-rolled Media Foundation interop, capture is Windows.Graphics.Capture /
-DXGI Desktop Duplication. The core app is under 0.4 MB; OCR ships as a separate
+DXGI Desktop Duplication. OCR ships as a separate
 flavor so the lightweight build stays lightweight.
 
 ## Install
@@ -117,6 +117,8 @@ killed or crashed hard — that is the signature to look for. Stack traces go to
 
 ### Capture history
 
+Available in the stable 0.9.0 release.
+
 ![Capture history with a saved screenshot selected](docs/images/history.png)
 
 Open **Capture history** from the tray menu, or double-click the tray icon.
@@ -129,6 +131,14 @@ refreshes when files change.
 `Ctrl+F` focuses search, and `F5` refreshes. Recordings saved elsewhere with
 Save as are available in the folder you chose. History does not change the
 existing automatic deletion setting.
+
+### Optional ADE attachments
+
+Choose **ADE** in the screenshot editor, **Attach screenshot to ADE** on a
+screenshot thumbnail, or the history attachment button to select a named
+Hephaestus workspace and agent draft. This requires a matching capture-protocol-v1
+receiver; the public ADE 0.0.108 package does not include it. Ordinary capture
+and clipboard use work independently. [Requirements and recovery](docs/ADE-INTEGRATION.md).
 
 ### Editor shortcuts
 
@@ -274,6 +284,10 @@ Ideas queued up — PRs welcome:
 - Re-editable annotations (select / move / delete individual shapes)
 
 ## Docs
+
+- [0.9.0 release and installation](docs/RELEASE-0.9.0.md)
+- [Failure handling and verification](docs/RELIABILITY.md)
+- [Optional ADE integration](docs/ADE-INTEGRATION.md)
 
 - [Architecture](docs/ARCHITECTURE.md) — component map and the decisions behind it
 - [Desktop integration proposal](docs/ECOSYSTEM-INTEGRATION.md) — improvements and a connected capture workflow for Hephaestus and Athena

@@ -1,6 +1,6 @@
 # WinSnipper improvements and desktop integration
 
-Prepared for Marko on 2026-10-02. This is a proposal grounded in the local source. Marko selected improving WinSnipper itself first, so capture history is the first implementation; cross-app delivery remains proposed. See [the history delivery record](CAPTURE-HISTORY.md) for its checks and installation state.
+Prepared for Marko on 2026-10-02. This source-grounded plan led first to capture history and reliability work, then to a source-level PNG attachment client and matching ADE receiver. WinSnipper includes the optional client in 0.9.0; the installed/public ADE still requires its separate receiver update. See [release delivery](RELEASE-0.9.0.md) and [integration requirements](ADE-INTEGRATION.md).
 
 Connect captures to the work they explain. Start with a recent-captures view inside WinSnipper. The recommended next integration is an **Attach to Hephaestus** action that places the edited screenshot in a chosen workspace's draft. Extend that same workflow to Athena conversations and Work Hub task evidence after the first path works end to end.
 

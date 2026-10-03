@@ -1,9 +1,9 @@
 ﻿# Changelog
 
-## Unreleased
+## 0.9.0 — 2026-10-03
 
 - Attach the current edited PNG, thumbnail or history screenshot to a selected ADE agent draft. The receiving app owns the bytes; retries use the same content and operation ID. Nothing is submitted automatically.
-- The destination picker and encrypted saved-delivery list keep failed handoffs recoverable. This first integration supports PNGs; installed binaries/watchdog/public releases are unchanged.
+- The destination picker and encrypted saved-delivery list keep failed handoffs recoverable. This optional integration supports PNGs and requires a Hephaestus build advertising capture protocol v1; it is not available in the current public ADE 0.0.108 release. Screenshot capture, history, editing and recording work independently.
 
 - Save PNGs through a flushed temporary file before committing the destination;
   failed saves preserve the previous capture. Reserve pending capture names.

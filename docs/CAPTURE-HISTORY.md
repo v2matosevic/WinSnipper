@@ -1,6 +1,6 @@
 # Capture history implementation and verification
 
-2026-10-02. Marko selected improving WinSnipper itself before ecosystem integration. Capture history is implemented and verified locally. Installation is pending approval because the supported build script restarts the running app. No public release was requested.
+Implemented on 2026-10-02 after Marko selected improving WinSnipper itself before ecosystem integration. The October 3 stable release and installation are tracked in [the 0.9.0 delivery record](RELEASE-0.9.0.md). The original source verification follows.
 
 ## Behavior
 
@@ -42,6 +42,6 @@ Use `pwsh -File tools\winsnipper.ps1 build -Flavor both` for installation into d
 
 ## Delivery and future integration
 
-Source changes: App/TrayIcon wiring, CaptureHistory metadata/image loader, HistoryWindow, the offscreen harness and documentation. No dependency was added. This feature remains Unreleased in the changelog.
+Source changes: App/TrayIcon wiring, CaptureHistory metadata/image loader, HistoryWindow, the offscreen harness and documentation. No dependency was added. This feature is included in 0.9.0.
 
 The [ecosystem proposal](ECOSYSTEM-INTEGRATION.md) records future capture-to-ADE/Athena delivery. It reuses the existing Hermes local service registry and explicit destination/draft receipts. No cross-app bridge, server API or automatic upload was implemented in this pass.

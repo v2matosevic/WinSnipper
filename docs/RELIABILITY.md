@@ -1,6 +1,6 @@
 # Capture failure handling and verification
 
-Implemented locally on 2026-10-03 after Marko authorized the proposed hardening pass. Nothing was installed or released in this pass. The running September 21 build remains unchanged. Confidence is high for the tested failure paths; native interaction and system sleep/resume remain unverified.
+Implemented on 2026-10-03 after Marko authorized the proposed hardening pass. The initial implementation did not change the installed app. Marko subsequently authorized the stable update and public release; [the 0.9.0 delivery record](RELEASE-0.9.0.md) carries the resulting installed/published state. Confidence is high for the tested failure paths; native interaction and system sleep/resume remain unverified.
 
 ## Changed behavior
 
@@ -44,7 +44,7 @@ the completion report. Its 24 fault checks passed again; the exact list is
 warnings/errors and completed `--selftest` with exit code 0, sequentially.
 The earlier full UI/hotkey results apply to unchanged reliability sources.
 
-Source and tests are ready locally. Use `pwsh -File tools\winsnipper.ps1 build -Flavor both` for a local dist update only after Marko approves restarting the running app and the shared source is ready. The earlier restart question has no approval in this thread; it was not repeated. Never publish directly to dist.
+Use `pwsh -File tools\winsnipper.ps1 build -Flavor both` for a local dist update with explicit owner authorization. Marko authorized the October 3 installation/public release in this conversation after source verification. Never publish directly to dist.
 
 Hard process termination can still lose edits that exist only in memory, and an incomplete MP4 is not promised playable or automatically repaired. Real sleep/resume, extended recording, mixed-monitor interaction and physical disk exhaustion remain hands-on/native acceptance cases; the injected faults and existing lifecycle harness do not prove those environments.
 

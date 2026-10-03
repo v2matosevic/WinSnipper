@@ -20,6 +20,12 @@ test, harnesses).
 | Smoke test (exit 0 = pass) | `<exe> --selftest` |
 | Render editor/trim UI to PNGs | `pwsh -NoProfile -File tools\ui-shots.ps1` (`-Readme` refreshes `docs\images`) |
 | Capture benchmark | `pwsh -NoProfile -File tools\measure-capture.ps1` |
+| Failure regression checks | `pwsh -NoProfile -File tools\test-reliability.ps1` |
+
+Latest stable delivery and exact verification: [docs/RELEASE-0.9.0.md](docs/RELEASE-0.9.0.md).
+Optional ADE screenshot attachment requires a capture-protocol-v1 receiver;
+see [docs/ADE-INTEGRATION.md](docs/ADE-INTEGRATION.md). Do not infer live
+integration from the WinSnipper version alone.
 
 ## Invariants
 
