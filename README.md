@@ -27,8 +27,8 @@ Two flavors:
 
 | File | Size | What you get |
 |---|---|---|
-| `WinSnipper.exe` | ~0.4 MB | The full flow — snip, record, trim, thumbnail, annotate, redact |
-| `WinSnipper-OCR.exe` | ~27 MB | Everything above + **Copy Text** (Windows OCR) + Windows.Graphics.Capture recording (records hardware-overlay video — browser video playback — that other capture paths show as black) |
+| `WinSnipper.exe` | ~0.83 MiB | The full flow — snip, record, trim, thumbnail, annotate, redact, history |
+| `WinSnipper-OCR.exe` | ~26.23 MiB | Everything above + **Copy Text** (Windows OCR) + Windows.Graphics.Capture recording (records hardware-overlay video — browser video playback — that other capture paths show as black) |
 
 Both need the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
 Tick *Start with Windows* in Settings if it earns a permanent spot.
