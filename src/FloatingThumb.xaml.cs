@@ -72,6 +72,7 @@ public partial class FloatingThumb : Window
             OcrMenuItem.Visibility = Visibility.Collapsed;
         if (isVideo)
         {
+            AttachCaptureMenuItem.Visibility = Visibility.Collapsed;
             // Image-only actions make no sense for an MP4.
             EditMenuItem.Visibility = Visibility.Collapsed;
             CopyMenuItem.Visibility = Visibility.Collapsed;

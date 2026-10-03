@@ -179,6 +179,7 @@
                             Tag="{StaticResource Ico.ScanText}" ToolTip="Copy all the text in the image (OCR) and close">
                         <TextBlock x:Name="OcrLabel" Text="Copy text"/>
                     </Button>
+                    <Button Style="{StaticResource Ws.Btn}" Content="ADE" Click="AttachCapture_Click" ToolTip="Add this edited screenshot to a chosen agent draft"/>
                     <Button Style="{StaticResource Ws.IconBtn}" Click="Save_Click"
                             Content="{StaticResource Ico.Save}" ToolTip="Save  (Ctrl+S): overwrites the snip file"/>
                     <Button Style="{StaticResource Ws.IconBtn}" Click="SaveAs_Click"

@@ -118,6 +118,7 @@
                     <TextBlock x:Name="SelectedDetails" FontSize="12" Foreground="{StaticResource Ws.TextDim}" Margin="0,5,0,0" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
                 <WrapPanel Grid.Row="2" Margin="0,0,0,6">
+                    <Button x:Name="AttachCaptureButton" Content="Attach to ADE" Style="{StaticResource Ws.BtnOutline}" Click="AttachCapture_Click" Margin="0,0,8,8" IsEnabled="False"/>
                     <Button x:Name="OpenButton" Content="Open editor" Style="{StaticResource Ws.BtnAccent}" Tag="{StaticResource Ico.Pen}" Click="Open_Click" Margin="0,0,8,8" ToolTip="Open selected capture  (Enter)" IsEnabled="False"/>
                     <Button x:Name="CopyButton" Content="Copy image" Style="{StaticResource Ws.BtnOutline}" Tag="{StaticResource Ico.Copy}" Click="Copy_Click" Margin="0,0,8,8" ToolTip="Copy selected capture  (Ctrl+C)" IsEnabled="False"/>
                     <Button x:Name="FolderButton" Content="Show file" Style="{StaticResource Ws.Btn}" Click="Folder_Click" Margin="0,0,0,8" IsEnabled="False"/>

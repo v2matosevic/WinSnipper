@@ -199,6 +199,7 @@ public partial class HistoryWindow : Window
     {
         bool enabled = Selected is not null && !_acting;
         OpenButton.IsEnabled = CopyButton.IsEnabled = FolderButton.IsEnabled = enabled;
+        AttachCaptureButton.IsEnabled = enabled && Selected?.IsVideo == false;
     }
 
     private async void Open_Click(object sender, RoutedEventArgs e)

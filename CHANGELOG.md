@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Attach the current edited PNG, thumbnail or history screenshot to a selected ADE agent draft. The receiving app owns the bytes; retries use the same content and operation ID. Nothing is submitted automatically.
+- The destination picker and encrypted saved-delivery list keep failed handoffs recoverable. This first integration supports PNGs; installed binaries/watchdog/public releases are unchanged.
+
 - Save PNGs through a flushed temporary file before committing the destination;
   failed saves preserve the previous capture. Reserve pending capture names.
 - Keep failed captures visible with retry/Save as controls. Await file writes
