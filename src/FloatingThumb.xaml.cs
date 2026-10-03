@@ -32,6 +32,10 @@ public partial class FloatingThumb : Window
     private TrimWindow? _trim;
     private readonly DispatcherTimer _dismissTimer;
     private bool _fading;
+    private bool _saved, _saveFailed, _copyFailed, _copyPending, _busy, _closed;
+    private int _copyRevision;
+    private string? _saveFailureMessage;
+    private Task? _lateSaveWatcher;
 
     // Which monitor this thumb was placed on, and where its top edge sits in
     // physical pixels — stacking has to compare across displays that may run
@@ -49,11 +53,13 @@ public partial class FloatingThumb : Window
     /// landed. Every action that touches the file on disk waits on it first.
     /// </param>
     public FloatingThumb(string path, BitmapSource image, bool isVideo = false,
-                         System.Drawing.Point? anchor = null, Task? saving = null)
+                         System.Drawing.Point? anchor = null, Task? saving = null, Task<bool>? copying = null)
     {
         InitializeComponent();
         _path = path;
         _saving = saving;
+        _saved = saving is null;
+        _copyPending = copying is not null;
         _isVideo = isVideo;
         _anchor = anchor;
         Opacity = 0; // AnimateIn fades it up once it is on the right monitor
@@ -79,12 +85,15 @@ public partial class FloatingThumb : Window
         {
             PositionStacked();
             AnimateIn();
+            if (_saving is not null) _ = EnsureSavedAsync();
+            if (copying is not null) _ = ObserveCopyAsync(copying);
+            UpdateDeliveryStatus();
         };
         // Dragging the card to another display (or a DPI change on this one)
         // must re-home it, or the next thumb stacks against a stale edge.
         LocationChanged += (_, _) => SyncPhysicalPosition();
         DpiChanged += (_, _) => SyncPhysicalPosition();
-        Closed += (_, _) => _open.Remove(this);
+        Closed += (_, _) => { _closed = true; _open.Remove(this); };
 
         _dismissTimer = new DispatcherTimer { Interval = DismissAfter };
         _dismissTimer.Tick += (_, _) => FadeOutAndClose();
@@ -95,16 +104,99 @@ public partial class FloatingThumb : Window
     }
 
     /// <summary>
-    /// Blocks until the capture is actually on disk. Called by everything that
+    /// Waits asynchronously until the capture is actually on disk. Called by everything that
     /// hands the path to somebody else — dragging the file out, the editor,
     /// Explorer — so the background write is invisible rather than a race.
     /// </summary>
-    private void EnsureSaved()
+    public async Task<bool> EnsureSavedAsync()
     {
-        if (_saving is null) return;
-        try { _saving.Wait(TimeSpan.FromSeconds(10)); }
-        catch (Exception ex) { Util.LogCrash("SnipSave", ex); }
-        _saving = null;
+        var saving = _saving;
+        if (saving is null) return _saved;
+        try
+        {
+            await saving.WaitAsync(TimeSpan.FromSeconds(10));
+            if (_saving != saving) return _saved;
+            _saving = null;
+            _saved = true;
+            _saveFailed = false;
+            _saveFailureMessage = null;
+        }
+        catch (TimeoutException)
+        {
+            // Keep the task: a timeout is not a completed or abandoned write.
+            if (_saving == saving) _saveFailed = true;
+            if (_lateSaveWatcher != saving) { _lateSaveWatcher = saving; _ = ObserveLateSaveAsync(saving); }
+        }
+        catch (Exception ex)
+        {
+            if (_saving != saving) return _saved;
+            _saving = null;
+            _saveFailed = true;
+            Util.LogCrash("SnipSave", ex);
+        }
+        if (!_closed) { UpdateDeliveryStatus(); RestartCountdown(); }
+        return _saved;
+    }
+
+    private async Task ObserveLateSaveAsync(Task saving)
+    {
+        try
+        {
+            await saving;
+            if (_saving != saving) return;
+            _saving = null;
+            _saved = true;
+            _saveFailed = false;
+            _saveFailureMessage = null;
+        }
+        catch (Exception ex)
+        {
+            if (_saving != saving) return;
+            _saving = null;
+            _saveFailed = true;
+            Util.LogCrash("SnipSave", ex);
+        }
+        if (!_closed) { UpdateDeliveryStatus(); RestartCountdown(); }
+    }
+
+    private async Task ObserveCopyAsync(Task<bool> copying)
+    {
+        int revision = ++_copyRevision;
+        _copyPending = true;
+        try { bool failed = !await copying; if (revision == _copyRevision) _copyFailed = failed; }
+        catch (Exception) { if (revision == _copyRevision) _copyFailed = true; }
+        finally
+        {
+            if (revision == _copyRevision)
+            {
+                _copyPending = false;
+                if (!_closed) { UpdateDeliveryStatus(); RestartCountdown(); }
+            }
+        }
+    }
+
+    private void UpdateDeliveryStatus()
+    {
+        RetrySaveMenuItem.Visibility = _saveFailed && !_saved && !_isVideo ? Visibility.Visible : Visibility.Collapsed;
+        DeliveryStatus.Text = _saveFailed
+            ? (_saveFailureMessage ?? (_saving is null ? "Not saved. Right-click to retry or Save as." : "Still saving. Try again shortly, or Save as."))
+            : _copyFailed ? "Not copied. Right-click Copy to retry."
+            : !_saved ? "Saving…" : "";
+        DeliveryStatus.Visibility = DeliveryStatus.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        // The recovery footer changes SizeToContent; keep it inside the monitor.
+        if (IsLoaded) Dispatcher.BeginInvoke(DispatcherPriority.Loaded, (Action)(() => { if (!_closed && IsVisible) PositionStacked(); }));
+    }
+
+    private async void RetrySave_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isVideo || _busy) return;
+        _busy = true;
+        try
+        {
+            if (_saving is null && !_saved) _saving = Task.Run(() => Util.SavePng(_img, _path, overwrite: false));
+            await EnsureSavedAsync();
+        }
+        finally { _busy = false; RestartCountdown(); }
     }
 
     private bool _pinned;
@@ -118,7 +210,7 @@ public partial class FloatingThumb : Window
 
     private void RestartCountdown()
     {
-        if (_pinned || _fading || _draggingOut) return;
+        if (_pinned || _fading || _draggingOut || _busy || !_saved || _saveFailed || _copyFailed || _copyPending) return;
         _dismissTimer.Stop();
         if (!IsMouseOver)
             _dismissTimer.Start();
@@ -127,7 +219,7 @@ public partial class FloatingThumb : Window
     private void FadeOutAndClose()
     {
         _dismissTimer.Stop();
-        if (_pinned || _fading || _draggingOut) return;
+        if (_pinned || _fading || _draggingOut || _busy || !_saved || _saveFailed || _copyFailed || _copyPending) return;
         if (IsMouseOver) return; // MouseLeave restarts the countdown
         _fading = true;
         var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(450));
@@ -199,7 +291,7 @@ public partial class FloatingThumb : Window
         _dragStart = e.GetPosition(this);
     }
 
-    private void Card_MouseMove(object sender, MouseEventArgs e)
+    private async void Card_MouseMove(object sender, MouseEventArgs e)
     {
         if (!_maybeDrag || e.LeftButton != MouseButtonState.Pressed) return;
         var p = e.GetPosition(this);
@@ -208,7 +300,12 @@ public partial class FloatingThumb : Window
             return;
 
         _maybeDrag = false;
-        EnsureSaved();
+        if (_busy) return;
+        _busy = true;
+        bool ready;
+        try { ready = await EnsureSavedAsync(); }
+        finally { _busy = false; }
+        if (!ready || _closed || Mouse.LeftButton != MouseButtonState.Pressed) return;
         var data = new DataObject(DataFormats.FileDrop, new[] { _path });
         if (!_isVideo)
             data.SetImage(_img); // for targets that accept bitmaps rather than files
@@ -248,9 +345,14 @@ public partial class FloatingThumb : Window
             new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 7, 7);
 
     // Opening the editor (or trim window for videos) consumes the thumbnail.
-    private void OpenEditor()
+    private async void OpenEditor()
     {
-        EnsureSaved();
+        if (_busy) return;
+        _busy = true;
+        bool ready;
+        try { ready = await EnsureSavedAsync(); }
+        finally { _busy = false; }
+        if (!ready || _closed) return;
         if (_isVideo)
         {
             if (_trim is { IsLoaded: true })
@@ -281,12 +383,11 @@ public partial class FloatingThumb : Window
 
     private void Edit_Click(object sender, RoutedEventArgs e) => OpenEditor();
 
-    private void Copy_Click(object sender, RoutedEventArgs e) => Util.TrySetClipboard(_img);
+    private async void Copy_Click(object sender, RoutedEventArgs e) => await ObserveCopyAsync(Util.SetClipboardAsync(_img));
 
-    private void CopyFile_Click(object sender, RoutedEventArgs e)
+    private async void CopyFile_Click(object sender, RoutedEventArgs e)
     {
-        EnsureSaved();
-        Util.TrySetClipboardFile(_path);
+        if (await EnsureSavedAsync() && !_closed) await ObserveCopyAsync(Util.SetClipboardFileAsync(_path));
     }
 
     private async void CopyText_Click(object sender, RoutedEventArgs e)
@@ -296,23 +397,24 @@ public partial class FloatingThumb : Window
         try
         {
             string? text = await Util.OcrAsync(_img);
-            if (!string.IsNullOrWhiteSpace(text))
-                Util.TrySetClipboardText(text);
+            if (string.IsNullOrWhiteSpace(text)) return;
+            await ObserveCopyAsync(Util.SetClipboardTextAsync(text));
+            if (!_copyFailed) Close();
         }
-        catch { }
-        Close();
+        catch (Exception ex) { DeliveryStatus.Text = $"OCR failed: {ex.Message}"; DeliveryStatus.Visibility = Visibility.Visible; }
     }
 
-    private void CopyPath_Click(object sender, RoutedEventArgs e)
+    private async void CopyPath_Click(object sender, RoutedEventArgs e)
     {
-        try { Clipboard.SetText(_path); } catch { }
+        if (await EnsureSavedAsync() && !_closed) await ObserveCopyAsync(Util.SetClipboardTextAsync(_path));
     }
 
-    private void SaveAs_Click(object sender, RoutedEventArgs e)
+    private async void SaveAs_Click(object sender, RoutedEventArgs e)
     {
+        if (_busy) return;
         _pinned = true; // the dialog is modal — don't let the card fade behind it
         _dismissTimer.Stop();
-        EnsureSaved();
+        if (_isVideo && !await EnsureSavedAsync()) return;
 
         var dlg = new Microsoft.Win32.SaveFileDialog
         {
@@ -325,47 +427,54 @@ public partial class FloatingThumb : Window
         };
         if (dlg.ShowDialog() != true) return;
 
-        Settings.Current.LastSaveAsDir = IOPath.GetDirectoryName(dlg.FileName) ?? "";
-        Settings.Current.Save();
-
-        if (_isVideo)
+        _busy = true;
+        try
         {
             // The MP4 already exists — relocate it and re-point the card, so the
             // next action (drag out, copy file, trim) works on the file the user
             // just chose rather than the one still sitting in Recordings\.
-            try
+            if (_isVideo)
             {
                 if (!string.Equals(dlg.FileName, _path, StringComparison.OrdinalIgnoreCase))
                 {
-                    File.Copy(_path, dlg.FileName, overwrite: true);
-                    try { File.Delete(_path); } catch { /* locked by a player — the copy is what matters */ }
-                    _path = dlg.FileName;
-                    if (Settings.Current.CopyToClipboard)
-                        Util.TrySetClipboardFile(_path);
+                    string source = _path;
+                    await Task.Run(() => ReliableIO.Write(dlg.FileName, output =>
+                    {
+                        using var input = File.OpenRead(source);
+                        input.CopyTo(output);
+                    }));
                 }
             }
-            catch (Exception ex)
-            {
-                Util.LogCrash("SaveAsVideo", ex);
-                MessageBox.Show(this, $"Could not save there:\n{ex.Message}", "WinSnipper",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
+            else
+                await Task.Run(() => Util.SavePng(_img, dlg.FileName));
+            _path = dlg.FileName;
+            _saving = null;
+            _saved = true;
+            _saveFailed = false;
+            _saveFailureMessage = null;
+            Settings.Current.LastSaveAsDir = IOPath.GetDirectoryName(dlg.FileName) ?? "";
+            try { Settings.Current.Save(); } catch (Exception ex) { Util.LogCrash("SaveAsSettings", ex); }
+            if (Settings.Current.CopyToClipboard)
+                await ObserveCopyAsync(_isVideo ? Util.SetClipboardFileAsync(_path) : Util.SetClipboardAsync(_img));
         }
-        else
+        catch (Exception ex)
         {
-            Util.SavePng(_img, dlg.FileName);
+            _saveFailed = true;
+            _saveFailureMessage = _saved ? "Could not save there. Original retained. Try Save as again." : "Not saved. Try Save as again.";
+            Util.LogCrash("SaveAs", ex);
         }
+        finally { _busy = false; if (!_closed) { UpdateDeliveryStatus(); RestartCountdown(); } }
     }
 
-    private void OpenDefault_Click(object sender, RoutedEventArgs e)
+    private async void OpenDefault_Click(object sender, RoutedEventArgs e)
     {
-        EnsureSaved();
+        if (!await EnsureSavedAsync() || _closed) return;
         Process.Start(new ProcessStartInfo(_path) { UseShellExecute = true });
     }
 
-    private void ShowInFolder_Click(object sender, RoutedEventArgs e)
+    private async void ShowInFolder_Click(object sender, RoutedEventArgs e)
     {
-        EnsureSaved();
+        if (!await EnsureSavedAsync() || _closed) return;
         Process.Start("explorer.exe", $"/select,\"{_path}\"");
     }
 

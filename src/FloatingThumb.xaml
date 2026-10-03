@@ -61,6 +61,7 @@
                     <MenuItem x:Name="OcrMenuItem" Header="Copy text (OCR)" Click="CopyText_Click"/>
                     <MenuItem Header="Copy file path" Click="CopyPath_Click"/>
                     <MenuItem x:Name="SaveAsMenuItem" Header="Save as…" Click="SaveAs_Click"/>
+                    <MenuItem x:Name="RetrySaveMenuItem" Header="Retry saving" Click="RetrySave_Click" Visibility="Collapsed"/>
                     <Separator/>
                     <MenuItem x:Name="OpenDefaultMenuItem" Header="Open in default viewer" Click="OpenDefault_Click"/>
                     <MenuItem Header="Show in folder" Click="ShowInFolder_Click"/>
@@ -68,6 +69,7 @@
                     <MenuItem Header="Dismiss" Click="CloseItem_Click"/>
                 </ContextMenu>
             </Border.ContextMenu>
+            <StackPanel>
             <Grid>
                 <Image x:Name="Thumb"
                        Margin="3"
@@ -89,6 +91,9 @@
                         Margin="6" Visibility="Collapsed"
                         Click="CloseItem_Click"/>
             </Grid>
+                <TextBlock x:Name="DeliveryStatus" Visibility="Collapsed" MaxWidth="190" Margin="8,2,8,8"
+                           Foreground="#FFECEDEF" FontSize="11" TextWrapping="Wrap" IsHitTestVisible="False"/>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

@@ -319,8 +319,9 @@ public partial class App : Application
     }
 
     /// <summary>Tray "Exit" — a deliberate quit, so the watchdog leaves it down.</summary>
-    private void QuitFromTray()
+    private async void QuitFromTray()
     {
+        if (_recordings.IsRecording) await _recordings.StopAsync();
         Util.MarkUserQuit();
         Util.LogSession("exit reason=tray-exit");
         Shutdown();

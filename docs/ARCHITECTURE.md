@@ -60,6 +60,14 @@ displays, RDP, device loss mid-recording).
 
 ## Process lifecycle and supervision
 
+Reliability rules added October 3, 2026: PNG writes stage/flush a unique
+temporary file beside the destination before committing it. Thumbnail file
+actions await save success and keep timed-out jobs observable. Editors keep
+dirty annotations open on failure and guard their asynchronous save/close
+work. Clipboard retries yield on the owning UI thread and stop when their
+request or clipboard sequence is superseded. Recording errors suppress success
+thumbnails; concurrent stops await one completion. [Checks and limits](RELIABILITY.md).
+
 WinSnipper has no main window, so a dead process looks exactly like a working
 one until you press the hotkey. Three pieces make that state visible and
 self-correcting.

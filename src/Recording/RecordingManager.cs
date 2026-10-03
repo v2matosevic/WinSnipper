@@ -18,6 +18,7 @@ public sealed class RecordingManager
     private ScreenRecorder? _recorder;
     private RecordingHud? _hud;
     private bool _stopping;
+    private TaskCompletionSource? _stopCompletion;
 
     public bool IsRecording => _recorder is not null;
 
@@ -92,7 +93,6 @@ public sealed class RecordingManager
                 {
                     guard.Stop();
                     _ = StopAsync();
-                    OnError?.Invoke($"Recording failed: {recorder.Error.Message}");
                 }
                 else if (recorder.Elapsed > MaxDuration)
                 {
@@ -111,8 +111,14 @@ public sealed class RecordingManager
 
     public async Task StopAsync()
     {
-        if (_recorder is null || _stopping) return;
+        if (_stopping)
+        {
+            if (_stopCompletion is not null) await _stopCompletion.Task;
+            return;
+        }
+        if (_recorder is null) return;
         _stopping = true;
+        var completion = _stopCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var recorder = _recorder;
         try
         {
@@ -120,24 +126,37 @@ public sealed class RecordingManager
             _hud = null;
 
             var lastFrame = await recorder.StopAsync();
+            if (recorder.Error is not null)
+            {
+                OnError?.Invoke($"Recording could not be completed: {recorder.Error.Message}\nAny partial file remains at {recorder.FilePath}");
+                return;
+            }
             if (lastFrame is null || !File.Exists(recorder.FilePath))
-                return; // nothing captured (or the recorder already reported the error)
+            {
+                OnError?.Invoke("No usable recording was produced.");
+                return;
+            }
 
             string path = Settings.Current.AskWhereToSaveRecordings
-                ? PromptForDestination(recorder.FilePath)
+                ? await PromptForDestinationAsync(recorder.FilePath)
                 : recorder.FilePath;
 
-            if (Settings.Current.CopyToClipboard)
-                Util.TrySetClipboardFile(path);
+            var copying = Settings.Current.CopyToClipboard ? Util.SetClipboardFileAsync(path) : null;
 
             var r = recorder.Region;
             var anchor = new System.Drawing.Point(r.X + r.Width / 2, r.Y + r.Height / 2);
-            new FloatingThumb(path, lastFrame, isVideo: true, anchor: anchor).ShowStacked();
+            new FloatingThumb(path, lastFrame, isVideo: true, anchor: anchor, copying: copying).ShowStacked();
+        }
+        catch (Exception ex)
+        {
+            Util.LogCrash("RecordingStop", ex);
+            OnError?.Invoke($"Recording could not be completed: {ex.Message}\nCheck {recorder.FilePath}");
         }
         finally
         {
             _recorder = null;
             _stopping = false;
+            completion.TrySetResult();
         }
     }
 
@@ -146,7 +165,7 @@ public sealed class RecordingManager
     /// disk under Recordings\ — cancelling simply keeps it there, so a stray
     /// Escape can never lose a take.
     /// </summary>
-    private static string PromptForDestination(string current)
+    private async Task<string> PromptForDestinationAsync(string current)
     {
         try
         {
@@ -164,17 +183,21 @@ public sealed class RecordingManager
             if (dlg.ShowDialog() != true) return current;
             if (string.Equals(dlg.FileName, current, StringComparison.OrdinalIgnoreCase)) return current;
 
-            Directory.CreateDirectory(Path.GetDirectoryName(dlg.FileName)!);
-            File.Copy(current, dlg.FileName, overwrite: true);
+            await Task.Run(() => ReliableIO.Write(dlg.FileName, output =>
+            {
+                using var input = File.OpenRead(current);
+                input.CopyTo(output);
+            }));
             try { File.Delete(current); } catch { /* leave the original if it is still locked */ }
 
             Settings.Current.LastSaveAsDir = Path.GetDirectoryName(dlg.FileName) ?? "";
-            Settings.Current.Save();
+            try { Settings.Current.Save(); } catch (Exception ex) { Util.LogCrash("RecordingSaveAsSettings", ex); }
             return dlg.FileName;
         }
         catch (Exception ex)
         {
             Util.LogCrash("RecordingSaveAs", ex);
+            OnError?.Invoke($"Could not save to that destination. Recording remains at {current}\n{ex.Message}");
             return current; // the recording is safe where it is
         }
     }

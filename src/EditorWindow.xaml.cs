@@ -55,6 +55,7 @@ public partial class EditorWindow : Window
     private readonly Stack<UIElement> _undo = new();
     private readonly Stack<UIElement> _redo = new();
     private bool _dirty;
+    private bool _ioBusy, _closeApproved, _needsCloseCopy;
     private Rect? _pendingCrop;
     private Rect? _cropRect; // what the crop overlay currently shows (dragging or pending)
 
@@ -679,8 +680,8 @@ public partial class EditorWindow : Window
     // reason in the status bar.
     private async void Ocr_Click(object sender, RoutedEventArgs e)
     {
+        if (!BeginIO()) return;
         CommitText();
-        BtnOcr.IsEnabled = false;
         StatusMsg.Text = "Recognizing text…";
         try
         {
@@ -692,8 +693,14 @@ public partial class EditorWindow : Window
                     : "No text found in the image";
                 return;
             }
-            Util.TrySetClipboardText(text);
+            if (_dirty) await SaveCoreAsync(_path);
+            if (!await Util.SetClipboardTextAsync(text))
+            {
+                StatusMsg.Text = "Text was not copied. Clipboard unavailable; try Copy text again.";
+                return;
+            }
             _clipboardHandled = true; // don't clobber the text with the image on close
+            _closeApproved = true;
             Close();
         }
         catch (Exception ex)
@@ -702,7 +709,7 @@ public partial class EditorWindow : Window
         }
         finally
         {
-            BtnOcr.IsEnabled = true;
+            EndIO();
         }
     }
 
@@ -862,20 +869,97 @@ public partial class EditorWindow : Window
 
     private void CopyAndClose()
     {
-        Util.TrySetClipboard(Composite());
-        Close(); // OnClosing auto-saves if dirty
+        _ = FinishCloseAsync(copyImage: true);
     }
 
-    private void Save_Click(object sender, RoutedEventArgs e) => Save();
+    private void Save_Click(object sender, RoutedEventArgs e) => _ = SaveAsync();
 
-    private BitmapSource Save()
+    private async Task<BitmapSource> SaveCoreAsync(string path)
     {
         var img = Composite();
-        Util.SavePng(img, _path);
+        await Task.Run(() => Util.SavePng(img, path));
+        _path = path;
         _dirty = false;
         UpdateTitle();
         ImageSaved?.Invoke(img);
         return img;
+    }
+
+    private bool BeginIO()
+    {
+        if (_ioBusy) return false;
+        _ioBusy = true;
+        Root.IsEnabled = false;
+        return true;
+    }
+
+    private void EndIO() { _ioBusy = false; Root.IsEnabled = true; }
+
+    public async Task<string> ExportAsync()
+    {
+        if (!BeginIO()) throw new InvalidOperationException("This capture is being saved. Try again shortly.");
+        try
+        {
+            StatusMsg.Text = "Saving…";
+            await SaveCoreAsync(_path);
+            StatusMsg.Text = "Saved";
+            return _path;
+        }
+        catch (Exception ex)
+        {
+            StatusMsg.Text = $"Not saved. Try Save or Save as: {ex.Message}";
+            throw;
+        }
+        finally { EndIO(); }
+    }
+
+    private async Task SaveAsync(string? destination = null)
+    {
+        if (!BeginIO()) return;
+        try
+        {
+            StatusMsg.Text = "Saving…";
+            await SaveCoreAsync(destination ?? _path);
+            StatusMsg.Text = "Saved";
+        }
+        catch (Exception ex) { StatusMsg.Text = $"Not saved. Try Save or Save as: {ex.Message}"; }
+        finally { EndIO(); }
+    }
+
+    private async Task CopyCurrentAsync()
+    {
+        if (!BeginIO()) return;
+        try
+        {
+            StatusMsg.Text = await Util.SetClipboardAsync(Composite()) ? "Image copied" : "Image not copied. Clipboard unavailable; try again.";
+        }
+        catch (Exception ex) { StatusMsg.Text = $"Image not copied: {ex.Message}"; }
+        finally { EndIO(); }
+    }
+
+    private async Task FinishCloseAsync(bool copyImage)
+    {
+        if (!BeginIO()) return;
+        try
+        {
+            CommitText();
+            StatusMsg.Text = "Saving…";
+            var img = _dirty ? await SaveCoreAsync(_path) : Composite();
+            if (copyImage)
+            {
+                _needsCloseCopy = true;
+                if (!await Util.SetClipboardAsync(img))
+                {
+                    StatusMsg.Text = "Saved, but not copied. Clipboard unavailable; try Copy & Close again.";
+                    return;
+                }
+            }
+            _needsCloseCopy = false;
+            _closeApproved = true;
+            Close();
+        }
+        catch (Exception ex) { StatusMsg.Text = $"Not saved. This editor is staying open. Try Save as: {ex.Message}"; }
+        finally { EndIO(); }
     }
 
     private void SaveAs_Click(object sender, RoutedEventArgs e)
@@ -887,13 +971,13 @@ public partial class EditorWindow : Window
             DefaultExt = ".png",
         };
         if (dlg.ShowDialog() != true) return;
-        _path = dlg.FileName;
-        Save();
+        _ = SaveAsync(dlg.FileName);
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
+        if (_ioBusy) { e.Handled = true; return; }
 
         // While typing a text annotation, only Enter/Esc are ours.
         if (_editBox != null && ReferenceEquals(e.OriginalSource, _editBox))
@@ -972,11 +1056,11 @@ public partial class EditorWindow : Window
                 e.Handled = true;
                 break;
             case Key.S when ctrl:
-                Save();
+                _ = SaveAsync();
                 e.Handled = true;
                 break;
             case Key.C when ctrl && !(e.OriginalSource is System.Windows.Controls.TextBox):
-                Util.TrySetClipboard(Composite());
+                _ = CopyCurrentAsync();
                 e.Handled = true;
                 break;
         }
@@ -990,9 +1074,8 @@ public partial class EditorWindow : Window
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         base.OnClosing(e);
-        if (!_dirty) return;
-        var img = Save();
-        if (!_clipboardHandled)
-            Util.TrySetClipboard(img);
+        if (_closeApproved || (!_ioBusy && !_dirty && !_needsCloseCopy)) return;
+        e.Cancel = true;
+        if (!_ioBusy) Dispatcher.BeginInvoke((Action)(() => _ = FinishCloseAsync(copyImage: !_clipboardHandled || _needsCloseCopy)));
     }
 }

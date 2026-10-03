@@ -35,6 +35,7 @@ public sealed class ScreenRecorder
 
     public string FilePath => _path;
     public Exception? Error { get; private set; }
+    internal Action? BeforeFinalize { get; set; }
 
     public ScreenRecorder(string path, Int32Rect regionPx, int fps, bool includeCursor)
     {
@@ -194,6 +195,7 @@ public sealed class ScreenRecorder
             if (frames > 0)
             {
                 lastFrame = ToBitmapSource(bmp);
+                BeforeFinalize?.Invoke();
                 Mf.Check(writer.Finalize_());
             }
             Diag($"loop exit frames={frames} elapsed={Elapsed.TotalSeconds:0.00}s");
@@ -213,7 +215,7 @@ public sealed class ScreenRecorder
             if (frames == 0 || Error is not null)
             {
                 try { if (System.IO.File.Exists(_path) && frames == 0) System.IO.File.Delete(_path); } catch { }
-                if (frames == 0) lastFrame = null;
+                lastFrame = null;
             }
             _finished.TrySetResult(lastFrame);
         }

@@ -80,6 +80,18 @@ the renders.
 
 ## Code layout
 
+For save, clipboard, thumbnail handoff or recording completion changes, run:
+
+```powershell
+pwsh -NoProfile -File tools\test-reliability.ps1
+```
+
+It injects failing writes, fake clipboard writers and a real recording
+finalization fault. No clipboard writes, synthetic input or visible windows;
+the small recording remains in a private temporary fixture. Error-state PNGs
+and the passing case list are written to `artifacts/reliability`. See
+[the verification record](docs/RELIABILITY.md).
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the component map.
 
 ## Ground rules

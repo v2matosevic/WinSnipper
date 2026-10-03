@@ -28,6 +28,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>WinSnipper</RootNamespace>
     <AssemblyName>WinSnipper</AssemblyName>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**;artifacts/**</DefaultItemExcludes>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
     <Version>0.8.1</Version>

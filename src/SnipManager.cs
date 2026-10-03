@@ -9,6 +9,7 @@ public sealed class SnipManager
 {
     private bool _active;
     private SnipOverlay? _prepared;
+    private readonly HashSet<string> _usedPaths = new(StringComparer.OrdinalIgnoreCase);
 
     public void PrepareOverlay()
     {
@@ -59,17 +60,15 @@ public sealed class SnipManager
                 // full-screen selection is long enough to be felt, and nothing
                 // about it needs to happen before the thumbnail appears —
                 // anything that does need the file waits on this task first.
-                var saving = Task.Run(() => Util.SavePng(cropped, path));
-
-                if (Settings.Current.CopyToClipboard)
-                    Util.TrySetClipboard(cropped);
+                var saving = Task.Run(() => Util.SavePng(cropped, path, overwrite: false));
+                var copying = Settings.Current.CopyToClipboard ? Util.SetClipboardAsync(cropped) : null;
 
                 // Selection is relative to the captured bitmap; the thumbnail
                 // docks to whichever monitor the selection's centre falls on.
                 var anchor = new System.Drawing.Point(
                     bounds.X + sel.X + sel.Width / 2,
                     bounds.Y + sel.Y + sel.Height / 2);
-                new FloatingThumb(path, cropped, anchor: anchor, saving: saving).ShowStacked();
+                new FloatingThumb(path, cropped, anchor: anchor, saving: saving, copying: copying).ShowStacked();
             }
         }
         finally
@@ -86,12 +85,13 @@ public sealed class SnipManager
         }
     }
 
-    private static string NextSnipPath()
+    private string NextSnipPath()
     {
         string baseName = $"Snip {DateTime.Now:yyyy-MM-dd HH-mm-ss}";
         string path = Path.Combine(Util.SnipsDir, baseName + ".png");
-        for (int i = 2; File.Exists(path); i++)
+        for (int i = 2; File.Exists(path) || _usedPaths.Contains(path); i++)
             path = Path.Combine(Util.SnipsDir, $"{baseName} ({i}).png");
+        _usedPaths.Add(path);
         return path;
     }
 }

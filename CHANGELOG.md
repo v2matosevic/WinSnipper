@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Save PNGs through a flushed temporary file before committing the destination;
+  failed saves preserve the previous capture. Reserve pending capture names.
+- Keep failed captures visible with retry/Save as controls. Await file writes
+  without freezing the UI; preserve and observe writes that exceed the timeout.
+- Report clipboard failures and retry asynchronously. Cancel stale copies when
+  another app or a newer capture changes the clipboard.
+- Keep the editor open when save/copy fails, and update Save as paths only after
+  success. Validate recording completion and share concurrent stop requests;
+  a finalization error never produces a success thumbnail.
+- Add 24 failure-path checks and exclude normal generated build folders from
+  isolated builds. See [verification and limits](docs/RELIABILITY.md).
+
 - Add capture history from the tray menu or a double-click on the tray icon.
   Browse screenshots and recordings, search names or dates, filter by type,
   preview captures, reopen the editor/trimmer, copy and reveal files.

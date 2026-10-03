@@ -50,30 +50,41 @@ public static class Util
         }
     }
 
-    public static void SavePng(BitmapSource image, string path)
+    public static void SavePng(BitmapSource image, string path, bool overwrite = true)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(image));
-        using var fs = File.Create(path);
-        encoder.Save(fs);
+        ReliableIO.Write(path, encoder.Save, overwrite);
     }
 
     /// <summary>Clipboard occasionally throws CLIPBRD_E_CANT_OPEN when another app holds it; retry briefly.</summary>
-    public static void TrySetClipboard(BitmapSource image)
+    private static long _clipboardRevision;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetClipboardSequenceNumber();
+
+    private static Task<bool> WriteClipboardAsync(Action write, Func<uint>? sequenceReader = null)
     {
-        for (int i = 0; i < 4; i++)
-        {
-            try
-            {
-                Clipboard.SetImage(image);
-                return;
-            }
-            catch
-            {
-                Thread.Sleep(60);
-            }
-        }
+        long revision = Interlocked.Increment(ref _clipboardRevision);
+        var readSequence = sequenceReader ?? GetClipboardSequenceNumber;
+        uint sequence = readSequence();
+        return ReliableIO.RetryAsync(write, mayContinue: () => revision == Interlocked.Read(ref _clipboardRevision) && sequence == readSequence());
+    }
+
+    public static Task<bool> SetClipboardAsync(BitmapSource image) =>
+        WriteClipboardAsync(() => Clipboard.SetImage(image));
+
+    public static Task<bool> SetClipboardFileAsync(string path) =>
+        WriteClipboardAsync(() => Clipboard.SetFileDropList(new System.Collections.Specialized.StringCollection { path }));
+
+    public static Task<bool> SetClipboardTextAsync(string text) =>
+        WriteClipboardAsync(() => Clipboard.SetText(text));
+
+    public static bool TrySetClipboard(BitmapSource image)
+    {
+        Interlocked.Increment(ref _clipboardRevision);
+        try { Clipboard.SetImage(image); return true; }
+        catch { return false; }
     }
 
     /// <summary>%APPDATA%\WinSnipper — logs, and the deliberate-quit marker.</summary>
@@ -146,36 +157,18 @@ public static class Util
     }
 
     /// <summary>Puts a file on the clipboard (pasteable into Explorer, chats, uploads).</summary>
-    public static void TrySetClipboardFile(string path)
+    public static bool TrySetClipboardFile(string path)
     {
-        for (int i = 0; i < 4; i++)
-        {
-            try
-            {
-                Clipboard.SetFileDropList(new System.Collections.Specialized.StringCollection { path });
-                return;
-            }
-            catch
-            {
-                Thread.Sleep(60);
-            }
-        }
+        Interlocked.Increment(ref _clipboardRevision);
+        try { Clipboard.SetFileDropList(new System.Collections.Specialized.StringCollection { path }); return true; }
+        catch { return false; }
     }
 
-    public static void TrySetClipboardText(string text)
+    public static bool TrySetClipboardText(string text)
     {
-        for (int i = 0; i < 4; i++)
-        {
-            try
-            {
-                Clipboard.SetText(text);
-                return;
-            }
-            catch
-            {
-                Thread.Sleep(60);
-            }
-        }
+        Interlocked.Increment(ref _clipboardRevision);
+        try { Clipboard.SetText(text); return true; }
+        catch { return false; }
     }
 
     /// <summary>True in the OCR flavor of the build (/p:EnableOcr=true).</summary>
