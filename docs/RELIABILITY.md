@@ -36,6 +36,14 @@ Reviewed recovery renders for failed thumbnail save/copy and editor close/save f
 
 ## Delivery and remaining limits
 
+Final source commit: `d802e85`. Verified from a detached worktree at
+`C:/Users/matos/AppData/Local/Temp/WinSnipper-verify-1791026249571` with peer
+integration files excluded. The authoritative checkout path is retained in
+the completion report. Its 24 fault checks passed again; the exact list is
+`artifacts/reliability-frozen/checks.json`. Lite and OCR both built with zero
+warnings/errors and completed `--selftest` with exit code 0, sequentially.
+The earlier full UI/hotkey results apply to unchanged reliability sources.
+
 Source and tests are ready locally. Use `pwsh -File tools\winsnipper.ps1 build -Flavor both` for a local dist update only after Marko approves restarting the running app and the shared source is ready. The earlier restart question has no approval in this thread; it was not repeated. Never publish directly to dist.
 
 Hard process termination can still lose edits that exist only in memory, and an incomplete MP4 is not promised playable or automatically repaired. Real sleep/resume, extended recording, mixed-monitor interaction and physical disk exhaustion remain hands-on/native acceptance cases; the injected faults and existing lifecycle harness do not prove those environments.
