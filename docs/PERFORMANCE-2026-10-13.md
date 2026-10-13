@@ -1,6 +1,17 @@
 # Heavy-load investigation, 2026-10-13
 
-Investigation and authorized local implementation for the owner's report that WinSnipper becomes slow or unresponsive when the PC is heavily used. Source baseline: `5b6057c`; working tree was clean at the start. Installed app remains OCR 0.9.0.0, PID 54540, running since October 9. The fixes below are implemented and locally tested; installation and publication remain separate.
+Investigation, implementation and authorized local installation for the owner's report that WinSnipper becomes slow or unresponsive when the PC is heavily used. Source baseline: `5b6057c`; working tree was clean at the start. The fixes were committed as `88824f7` and installed October 13. The OCR app runs as PID 57476, started at 14:29:44 from the rebuilt `dist/WinSnipper-OCR.exe`. Its assembly version stays 0.9.0.0; this is a local fix build, not a new public release.
+
+## Local installation verification
+
+After the owner explicitly approved the restart with "yes", `pwsh -File tools/winsnipper.ps1 build -Flavor both` completed with exit 0. It stopped the previous PID 54540, rebuilt both flavors through the supported supervisor, and started OCR PID 57476. `status` confirms the October 13 build, correct executable path, autostart target and Ready watchdog. Both exact `dist` executables passed `--selftest` sequentially with process exit codes explicitly awaited (0). The installed OCR hash and PID/path were rechecked after those tests. Crash-log inspection shows only earlier injected test failures, with no later entry at that inspection.
+
+| Installed artifact | SHA256 |
+| --- | --- |
+| `dist/WinSnipper.exe` | `327F86BE55E7B003361FB8D7D726FF33BF27F2C262C8A74ACDF2A1C68091E1CF` |
+| `dist/WinSnipper-OCR.exe` | `37A5182052C1542E43A9C604C6C833245356E4E3769351D5A5B0D3035B08611C` |
+
+Implemented, locally verified and installed. No version tag, GitHub release, winget manifest update or public publication was made. Actual heavy-workload keyboard/focus behavior and visible opening latency remain a hands-on check; the local tests do not establish that every system-load stall is resolved.
 
 ## Implementation after owner authorization
 
@@ -19,7 +30,7 @@ Both single-file, ReadyToRun `win-x64` candidates were then published into the p
 
 The capture benchmark was repeated: current median 67.078 ms (12 warm samples, 58.176–89.776 ms); unchanged legacy baseline 144.076 ms. Pixel, crop/PNG, opacity and resource checks passed; GDI handles 5/5, process handles 270/268 and private memory 10 MB after retention checks. This confirms the unchanged native capture path still passes; the new changes target blocking and window lifecycle, not raw blit throughput.
 
-Confidence is high in the covered behavior and failure cleanup, moderate in reducing the reported stalls. No on-desktop keyboard/focus test under comparable load has been performed. The owner still has the October 3 executable running; no running app or service was stopped. Installing requires the exact command `pwsh -File tools/winsnipper.ps1 build -Flavor both`, which stops and restarts WinSnipper and therefore needs explicit process-stop approval under the supplied global instructions. No GPU recording refactor was made; that remains a separate optimization if recording measurements justify it.
+Confidence is high in the covered behavior, failure cleanup and local installation, moderate in reducing the reported stalls. No on-desktop keyboard/focus test under comparable load has been performed. The owner explicitly approved the required WinSnipper restart before the supported install command was run; no other app or service was stopped. No GPU recording refactor was made; that remains a separate optimization if recording measurements justify it.
 
 The sections below preserve the evidence and recommendations from the earlier investigation in this task.
 
@@ -84,4 +95,4 @@ Microsoft documents that timed-out low-level keyboard hooks can be silently remo
 
 ## Delivery and instruction sources
 
-The initial investigation changed no application code; the subsequent authorized implementation is described above. No installs, releases, synthetic input, clipboard writes or process stops were performed. Repository `AGENTS.md` is absent; the owner-supplied AGENTS instructions and repository `CLAUDE.md` apply. Shared memory and relevant project notes were read; Athena's performance-memory search returned no notes. The missing explicit ADE logo was copied from the existing app icon, without generating a new identity.
+The initial investigation changed no application code; the subsequent authorized implementation and local installation are described above. WinSnipper alone was stopped/restarted after explicit approval. No public releases, synthetic input or clipboard writes were performed. Repository `AGENTS.md` is absent; the owner-supplied AGENTS instructions and repository `CLAUDE.md` apply. Shared memory and relevant project notes were read; Athena's performance-memory search returned no notes. The missing explicit ADE logo was copied from the existing app icon, without generating a new identity.

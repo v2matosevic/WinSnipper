@@ -23,7 +23,8 @@ test, harnesses).
 | Failure regression checks | `pwsh -NoProfile -File tools\test-reliability.ps1` |
 
 Latest stable delivery and exact verification: [docs/RELEASE-0.9.0.md](docs/RELEASE-0.9.0.md).
-Uninstalled heavy-load responsiveness work and its verification:
+Locally installed heavy-load responsiveness fix (`88824f7`, version still 0.9.0)
+and its verification:
 [docs/PERFORMANCE-2026-10-13.md](docs/PERFORMANCE-2026-10-13.md).
 Optional ADE screenshot attachment requires a capture-protocol-v1 receiver;
 see [docs/ADE-INTEGRATION.md](docs/ADE-INTEGRATION.md). Do not infer live
