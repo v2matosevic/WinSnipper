@@ -16,9 +16,15 @@ namespace WinSnipper;
 public static class Warmup
 {
     /// <summary>Startup path: a warm-up failure must never be the reason the app is not there.</summary>
-    public static void Run()
+    public static async Task RunAsync()
     {
-        try { Prime(); }
+        try
+        {
+            var (shot, bounds) = await CaptureWorker.CaptureAsync();
+            if (Application.Current.Dispatcher.HasShutdownStarted) return;
+            SnipOverlay.Warm(shot, bounds);
+            WarmImagePipeline(shot);
+        }
         catch (Exception ex) { Util.LogCrash("Warmup", ex); }
     }
 

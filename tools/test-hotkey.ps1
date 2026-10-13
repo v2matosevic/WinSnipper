@@ -13,12 +13,14 @@ if (-not $AppDll) {
 $AppDll = (Resolve-Path $AppDll).Path
 $harness = Join-Path $scratch 'harness'
 New-Item -ItemType Directory -Path $harness | Out-Null
+Copy-Item (Join-Path $root 'app.manifest') (Join-Path $harness 'app.manifest')
 @'
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <ApplicationManifest>app.manifest</ApplicationManifest><NoWarn>WFAC010</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Using Remove="System.Drawing"/><Using Remove="System.Windows.Forms"/>
@@ -28,6 +30,7 @@ New-Item -ItemType Directory -Path $harness | Out-Null
 '@ | Set-Content (Join-Path $harness 'Checks.csproj')
 @'
 using System.Diagnostics;
+using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -39,11 +42,19 @@ using WinSnipper;
 
 static class Checks
 {
+    sealed class HeadlessApp : App
+    {
+        protected override void OnStartup(StartupEventArgs e) { }
+    }
     const BindingFlags Instance = BindingFlags.Instance | BindingFlags.NonPublic;
     const BindingFlags Static = BindingFlags.Static | BindingFlags.NonPublic;
+    [StructLayout(LayoutKind.Sequential)]
+    struct NativeRect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")]
+    static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
     static void Assert(bool ok, string message) { if (!ok) throw new Exception(message); }
     static object? Call(object instance, string name, params object[] args) =>
-        instance.GetType().GetMethod(name, Instance)!.Invoke(instance, args);
+        (instance is App ? typeof(App) : instance.GetType()).GetMethod(name, Instance)!.Invoke(instance, args);
     static object? CallStatic(Type type, string name, params object[] args) =>
         type.GetMethod(name, Static)!.Invoke(null, args);
 
@@ -54,12 +65,20 @@ static class Checks
         // on the maintainer's desktop. Exercise the real dispatch/release code.
         var hook = (KeyboardHook)RuntimeHelpers.GetUninitializedObject(typeof(KeyboardHook));
         typeof(KeyboardHook).GetField("_swallowed", Instance)!.SetValue(hook, new bool[256]);
+        var dispatchType = typeof(App).Assembly.GetType("WinSnipper.HotkeyDispatch")!;
+        var dispatch = Activator.CreateInstance(dispatchType, Instance | BindingFlags.Public, null,
+            new object[] { (Action<uint, uint, bool>)((time, receipt, recording) => {
+                var eventField = typeof(KeyboardHook).GetField(recording ? "RecordHotkeyPressed" : "HotkeyPressed", Instance)!;
+                ((Action<uint, uint>?)eventField.GetValue(hook))?.Invoke(time, receipt);
+            }) }, null)!;
+        typeof(KeyboardHook).GetField("_dispatch", Instance)!.SetValue(hook, dispatch);
+        Call(dispatch, "Start");
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         using var finished = new ManualResetEventSlim();
         int caller = Environment.CurrentManagedThreadId, subscriber = caller, count = 0;
         uint received = 0;
-        hook.HotkeyPressed += time => {
+        hook.HotkeyPressed += (time, receipt) => {
             subscriber = Environment.CurrentManagedThreadId;
             received = time;
             Interlocked.Increment(ref count);
@@ -86,7 +105,7 @@ static class Checks
         Console.WriteLine("PASS: blocked subscriber stays off caller; repeats/release swallowed; timestamp preserved");
 
         using var recDone = new ManualResetEventSlim();
-        hook.RecordHotkeyPressed += _ => recDone.Set();
+        hook.RecordHotkeyPressed += (_, _) => recDone.Set();
         Call(hook, "Dispatch", (uint)0x44, (uint)5678, true);
         Assert(recDone.Wait(TimeSpan.FromSeconds(3)), "record dispatch missing");
         Assert(count == 1, "record routed to screenshot");
@@ -106,21 +125,36 @@ static class Checks
         Assert((int)typeof(Responsiveness).GetField("_depth", Static)!.GetValue(null)! == 0, "boost leaked");
         Console.WriteLine("PASS: expired scopes/timers cannot cancel a later boost");
 
-        var app = new App();
-        app.InitializeComponent();
+        var app = new HeadlessApp();
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        { Source = new Uri("/WinSnipper;component/src/Theme.xaml", UriKind.Relative) });
         int requests = 0;
         var frame = new DispatcherFrame();
-        Action<PerformanceTrace> capture = _ => { requests++; frame.Continue = false; };
-        Call(app, "QueueCapture", "snip", (uint)Environment.TickCount, capture);
-        Call(app, "QueueCapture", "snip", (uint)Environment.TickCount, capture);
+        Func<PerformanceTrace, Task> capture = _ => { requests++; frame.Continue = false; return Task.CompletedTask; };
+        Call(app, "QueueCapture", "snip", (uint)Environment.TickCount, capture, null!);
+        Call(app, "QueueCapture", "snip", (uint)Environment.TickCount, capture, null!);
         Dispatcher.PushFrame(frame);
         Assert(requests == 1, "duplicate pending capture queued");
         Assert((int)typeof(App).GetField("_snipPending", Instance)!.GetValue(app)! == 0, "pending capture never reset");
         frame = new DispatcherFrame();
-        Call(app, "QueueCapture", "snip", (uint)Environment.TickCount, capture);
+        Call(app, "QueueCapture", "snip", (uint)Environment.TickCount, capture, null!);
         Dispatcher.PushFrame(frame);
         Assert(requests == 2, "next capture was blocked");
         Console.WriteLine("PASS: pending requests coalesced; next completed capture allowed");
+        // The pending flag and boost must last until asynchronous capture ends.
+        var delayed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        frame = new DispatcherFrame();
+        Func<PerformanceTrace, Task> asyncCapture = _ => { requests++; frame.Continue = false; return delayed.Task; };
+        Call(app, "QueueCapture", "snip", (uint)Environment.TickCount, asyncCapture, null!);
+        Dispatcher.PushFrame(frame);
+        Call(app, "QueueCapture", "snip", (uint)Environment.TickCount, asyncCapture, null!);
+        Assert((int)typeof(App).GetField("_snipPending", Instance)!.GetValue(app)! == 1, "async pending flag released early");
+        Assert((int)typeof(Responsiveness).GetField("_depth", Static)!.GetValue(null)! > 0, "async boost released early");
+        delayed.SetResult();
+        PumpUntil(() => (int)typeof(App).GetField("_snipPending", Instance)!.GetValue(app)! == 0);
+        Assert(requests == 3, "duplicate async request escaped coalescing");
+        Console.WriteLine("PASS: asynchronous requests retain pending flag and boost until completion");
         var watch = Stopwatch.StartNew();
         var prepared = (SnipOverlay)CallStatic(typeof(SnipOverlay), "PrepareScreenshot")!;
         double prepareMs = watch.Elapsed.TotalMilliseconds;
@@ -134,6 +168,17 @@ static class Checks
             "prepared overlay used stale monitor bounds");
         var fresh = new SnipOverlay(bitmap, new Int32Rect(-320, 0, 320, 180));
         Assert(Render(prepared).SequenceEqual(Render(fresh)), "prepared overlay differs from fresh overlay");
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(prepared).Handle;
+        Assert(hwnd != IntPtr.Zero, "prepared overlay has no hidden HWND");
+        Call(prepared, "ClearScreenshot");
+        Assert(!prepared.IsVisible && !SnipOverlay.IsOpen, "idle hidden HWND blocks capture");
+        var reservation = (IDisposable)CallStatic(typeof(SnipOverlay), "TryReserveCapture")!;
+        Assert(SnipOverlay.IsOpen && CallStatic(typeof(SnipOverlay), "TryReserveCapture") is null, "capture reservation allows overlap");
+        reservation.Dispose();
+        Assert(!SnipOverlay.IsOpen, "reservation was not released");
+        Call(prepared, "SetScreenshot", bitmap, new Int32Rect(-320, 0, 320, 180));
+        Assert(new System.Windows.Interop.WindowInteropHelper(prepared).Handle == hwnd, "screenshot reattachment replaced HWND");
+        Call(prepared, "ClearScreenshot");
         prepared.Close(); fresh.Close();
         Assert(!SnipOverlay.IsOpen, "closed unshown overlay blocks snips");
         var manager = new SnipManager();
@@ -143,7 +188,151 @@ static class Checks
         Assert(ReferenceEquals(first, typeof(SnipManager).GetField("_prepared", Instance)!.GetValue(manager)), "idle preparation stacks windows");
         ((SnipOverlay)first!).Close();
         Console.WriteLine($"PASS: prepared/fresh pixels identical; bounds refreshed; IsOpen clear; one cached overlay. Prepare={prepareMs:F1}ms attach={attachMs:F1}ms");
+        CheckModalReuse(bitmap);
+        CheckCaptureWorker();
+        CheckCaptureFailure();
+        CheckActualCapture();
+        ((IDisposable)dispatch).Dispose();
         app.Shutdown();
+    }
+
+    static void PumpUntil(Func<bool> done)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
+        var deadline = Stopwatch.StartNew();
+        timer.Tick += (_, _) => { if (done() || deadline.Elapsed.TotalSeconds > 5) frame.Continue = false; };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+        timer.Stop();
+        Assert(done(), "dispatcher check timed out");
+    }
+
+    static void CheckCaptureWorker()
+    {
+        var workerType = typeof(App).Assembly.GetType("WinSnipper.CaptureWorker")!;
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        int calls = 0, caller = Environment.CurrentManagedThreadId, captureThread = caller;
+        var worker = Activator.CreateInstance(workerType, Instance, null,
+            new object[] { (Func<(BitmapSource, Int32Rect)>)(() => {
+                captureThread = Environment.CurrentManagedThreadId;
+                if (Interlocked.Increment(ref calls) == 1) { entered.Set(); release.Wait(TimeSpan.FromSeconds(5)); throw new IOException("injected capture fault"); }
+                var image = BitmapSource.Create(8, 8, 96, 96, PixelFormats.Bgr32, null, new byte[256], 32);
+                image.Freeze();
+                return (image, new Int32Rect(0, 0, 8, 8));
+            }) }, null)!;
+        try
+        {
+            var first = (Task<(BitmapSource, Int32Rect)>)Call(worker, "Enqueue", new object[] { null! })!;
+            Assert(entered.Wait(TimeSpan.FromSeconds(3)), "capture worker did not enter");
+            Assert(captureThread != caller && !first.IsCompleted, "capture ran on caller/UI thread");
+            var second = (Task<(BitmapSource, Int32Rect)>)Call(worker, "Enqueue", new object[] { null! })!;
+            var overflow = (Task<(BitmapSource, Int32Rect)>)Call(worker, "Enqueue", new object[] { null! })!;
+            Assert(overflow.IsFaulted, "capture queue grew without bound");
+            release.Set();
+            PumpUntil(() => first.IsCompleted && second.IsCompleted);
+            Assert(first.IsFaulted && second.Result.Item1.IsFrozen, "capture fault killed worker or unfrozen pixels escaped");
+            var weak = CaptureWeakReference(worker);
+            for (int i = 0; i < 3; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+            Assert(!weak.TryGetTarget(out _), "idle capture worker retained its last bitmap");
+            Console.WriteLine("PASS: blocked capture stays off UI; queue bounded; fault observable; next frozen capture succeeds");
+            Console.WriteLine("PASS: idle capture worker does not retain last completed bitmap");
+        }
+        finally { release.Set(); Call(worker, "Complete"); }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static WeakReference<BitmapSource> CaptureWeakReference(object worker)
+    {
+        var task = (Task<(BitmapSource, Int32Rect)>)Call(worker, "Enqueue", new object[] { null! })!;
+        PumpUntil(() => task.IsCompleted);
+        return new WeakReference<BitmapSource>(task.GetAwaiter().GetResult().Item1);
+    }
+
+    static void CheckModalReuse(BitmapSource bitmap)
+    {
+        // A real modal HWND far outside the desktop, never activated. No input
+        // is sent. Check Hide's modal return behavior, not a mocked window.
+        var overlay = (SnipOverlay)CallStatic(typeof(SnipOverlay), "PrepareScreenshot")!;
+        overlay.ShowActivated = false;
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(overlay).Handle;
+        for (int i = 0; i < 3; i++)
+        {
+            var bounds = new Int32Rect(-30000 - i * 320, -30000, 320, 180);
+            if (i > 0)
+            {
+                var modeType = typeof(SnipOverlay).GetNestedType("PickMode", BindingFlags.NonPublic)!;
+                Call(overlay, "SetMode", Enum.Parse(modeType, "Window"));
+            }
+            Call(overlay, "SetScreenshot", bitmap, bounds);
+            Assert(typeof(SnipOverlay).GetField("_mode", Instance)!.GetValue(overlay)!.ToString() == "Region",
+                "previous pick mode survived screenshot reset");
+            Assert(typeof(SnipOverlay).GetField("_windows", Instance)!.GetValue(overlay) is null,
+                "previous window cache survived screenshot reset");
+            var trace = new PerformanceTrace("offscreen-reuse-check");
+            trace.TrackWindow(overlay);
+            bool accepted = i != 1;
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            timer.Tick += (_, _) => {
+                timer.Stop();
+                Assert(overlay.IsVisible && SnipOverlay.IsOpen, "modal selection is not reserved");
+                Assert(GetWindowRect(hwnd, out var rect) && rect.Left == bounds.X && rect.Top == bounds.Y
+                    && rect.Right - rect.Left == bounds.Width && rect.Bottom - rect.Top == bounds.Height,
+                    "retained HWND used stale physical monitor bounds");
+                var steps = (List<string>)typeof(PerformanceTrace).GetField("_steps", Instance)!.GetValue(trace)!;
+                Assert(steps.Any(step => step.StartsWith("rendered=")), "reshown window did not report its per-show render");
+                if (accepted) Call(overlay, "FinishWith", 10, 20, 40, 30);
+                else overlay.Close(); // Alt+F4/WM_CLOSE follows Closing.
+            };
+            timer.Start();
+            bool result = (bool)Call(overlay, "ShowScreenshotSelection")!;
+            timer.Stop();
+            trace.Finish("finished-before-render");
+            Assert(result == accepted, "reused modal acceptance/cancellation was lost");
+            Assert(!overlay.IsVisible && !SnipOverlay.IsOpen, "finished overlay is still visible/reserved");
+            Assert(new System.Windows.Interop.WindowInteropHelper(overlay).Handle == hwnd, "modal selection recreated HWND");
+            Assert(typeof(PerformanceTrace).GetField("_detachWindow", Instance)!.GetValue(trace) is null, "trace handlers leaked on retained window");
+            if (accepted) Assert(overlay.SelectionPx == new Int32Rect(10, 20, 40, 30), "reused selection pixels changed");
+            Call(overlay, "ClearScreenshot");
+            var image = (System.Windows.Controls.Image)typeof(SnipOverlay).GetField("ScreenImage", Instance)!.GetValue(overlay)!;
+            Assert(image.Source is null && overlay.SelectionPx is null, "idle overlay retained screenshot/selection");
+        }
+        overlay.Close();
+        Console.WriteLine("PASS: offscreen modal accept/cancel/accept reuse same HWND; every show traced; idle pixels cleared; trace handlers detached");
+    }
+
+    static void CheckCaptureFailure()
+    {
+        var delayed = new TaskCompletionSource<(BitmapSource, Int32Rect)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var manager = (SnipManager)Activator.CreateInstance(typeof(SnipManager), Instance, null,
+            new object[] { (Func<PerformanceTrace, Task<(BitmapSource, Int32Rect)>>)(_ => delayed.Task) }, null)!;
+        var capture = manager.StartSnipAsync(new PerformanceTrace("injected-delayed-capture"));
+        Assert(SnipOverlay.IsOpen && !capture.IsCompleted, "pending capture did not reserve selection");
+        var repeat = manager.StartSnipAsync(new PerformanceTrace("injected-repeat"));
+        Assert(repeat.IsCompletedSuccessfully, "repeat queued behind delayed capture");
+        delayed.SetException(new IOException("injected capture failure"));
+        PumpUntil(() => capture.IsCompleted);
+        Assert(capture.IsFaulted && !SnipOverlay.IsOpen, "capture failure lost error or leaked selection reservation");
+        Assert(!(bool)typeof(SnipManager).GetField("_active", Instance)!.GetValue(manager)!, "capture failure left manager active");
+        Assert((int)typeof(Responsiveness).GetField("_depth", Static)!.GetValue(null)! == 0, "capture failure leaked priority boost");
+        _ = capture.Exception; // The failure is deliberately observed.
+        Console.WriteLine("PASS: delayed manager capture reserves selection; repeats rejected; failure releases manager/reservation/boost");
+    }
+
+    static void CheckActualCapture()
+    {
+        var workerType = typeof(App).Assembly.GetType("WinSnipper.CaptureWorker")!;
+        var task = (Task<(BitmapSource, Int32Rect)>)CallStatic(workerType, "CaptureAsync", new object[] { null! })!;
+        PumpUntil(() => task.IsCompleted);
+        var (image, bounds) = task.GetAwaiter().GetResult();
+        Assert(image.IsFrozen && image.PixelWidth == bounds.Width && image.PixelHeight == bounds.Height,
+            "real background capture pixels/bounds invalid");
+        Assert(bounds == ScreenCapture.VirtualScreenBounds(), "capture worker used a different DPI/monitor context");
+        var pixel = new byte[4];
+        new FormatConvertedBitmap(image, PixelFormats.Bgra32, null, 0).CopyPixels(new Int32Rect(0, 0, 1, 1), pixel, 4, 0);
+        Assert(pixel[3] == 255, "real background capture pixel was transparent/unreadable on UI");
+        Console.WriteLine($"PASS: real dedicated STA capture returns frozen UI-readable pixels and physical bounds {bounds}");
     }
 
     static byte[] Render(Window window)

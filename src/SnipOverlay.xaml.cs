@@ -24,6 +24,12 @@ public partial class SnipOverlay : Window
     private PickMode _mode = PickMode.Region;
     private bool _dragging;
     private bool _done;
+    private bool _accepted;
+    private bool _reusable;
+    internal bool IsReusable => _reusable;
+    internal bool IsClosed { get; private set; }
+    private static SnipOverlay? _visibleOverlay;
+    private static bool _captureReserved;
     private Point _startPx;
     private Point _curPx;
 
@@ -44,7 +50,27 @@ public partial class SnipOverlay : Window
 
     /// <summary>True while any selection overlay is on screen — the snip and
     /// record hotkeys must not stack two fullscreen overlays.</summary>
-    public static bool IsOpen { get; private set; }
+    public static bool IsOpen => _captureReserved || _visibleOverlay is not null;
+
+    // Reserve before awaiting capture: the recording selector must not open
+    // over a screenshot whose pixels are still being prepared.
+    internal static IDisposable? TryReserveCapture()
+    {
+        if (IsOpen) return null;
+        _captureReserved = true;
+        return new Reservation();
+    }
+
+    private sealed class Reservation : IDisposable
+    {
+        private bool _disposed;
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _captureReserved = false;
+        }
+    }
 
     /// <summary>Frozen-screenshot overlay (snips). Shows the shot, dims around the selection.</summary>
     public SnipOverlay(BitmapSource screenshot, Int32Rect virtualScreenPx) : this(virtualScreenPx, live: false)
@@ -62,7 +88,27 @@ public partial class SnipOverlay : Window
         InitializeComponent();
         if (live)
             Background = Brushes.Transparent; // after InitializeComponent — XAML sets Black
-        Closed += (_, _) => { IsOpen = false; ScreenImage.Source = null; };
+        Closed += (_, _) =>
+        {
+            IsClosed = true;
+            if (ReferenceEquals(_visibleOverlay, this)) _visibleOverlay = null;
+            ScreenImage.Source = null;
+        };
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible) _visibleOverlay = this;
+            else if (ReferenceEquals(_visibleOverlay, this)) _visibleOverlay = null;
+        };
+        Closing += (_, e) =>
+        {
+            // Alt+F4 cancels selection without destroying the reusable HWND.
+            // Idle Close and application shutdown still tear the window down.
+            if (_reusable && IsVisible && !Dispatcher.HasShutdownStarted)
+            {
+                e.Cancel = true;
+                Finish(false);
+            }
+        };
         var dim = new GeometryGroup { FillRule = FillRule.EvenOdd };
         dim.Children.Add(_dimOuter);
         dim.Children.Add(_dimHole);
@@ -79,8 +125,7 @@ public partial class SnipOverlay : Window
         }
         Loaded += (_, _) =>
         {
-            Activate();
-            Focus();
+            if (ShowActivated) { Activate(); Focus(); }
             UpdateDim(null);
         };
     }
@@ -88,28 +133,56 @@ public partial class SnipOverlay : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
-        IsOpen = true;
         var hwnd = new WindowInteropHelper(this).Handle;
         MoveWindow(hwnd, _vs.X, _vs.Y, _vs.Width, _vs.Height, false);
     }
 
     /// <summary>Parse and lay out an empty screenshot overlay while idle.
-    /// No HWND, desktop pixels or visible window are retained.</summary>
+    /// Retain its hidden HWND, but no desktop pixels or visible window.</summary>
     internal static SnipOverlay PrepareScreenshot()
     {
         var overlay = new SnipOverlay(ScreenCapture.VirtualScreenBounds(), live: false);
+        overlay._reusable = true;
         if (overlay.Content is UIElement content)
         {
             content.Measure(new Size(400, 300));
             content.Arrange(new Rect(0, 0, 400, 300));
         }
+        new WindowInteropHelper(overlay).EnsureHandle();
         return overlay;
     }
 
     internal void SetScreenshot(BitmapSource screenshot, Int32Rect bounds)
     {
+        _done = _accepted = _dragging = false;
+        SelectionPx = _hover = null;
+        _windows = _screens = null;
+        _startPx = _curPx = default;
+        ReleaseMouseCapture();
+        SetMode(PickMode.Region);
+        SelRect.Visibility = SizeBadge.Visibility = Visibility.Collapsed;
         _vs = bounds; // Monitors may have changed since preparation.
         ScreenImage.Source = screenshot;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+            MoveWindow(hwnd, bounds.X, bounds.Y, bounds.Width, bounds.Height, false);
+        UpdateDim(null);
+    }
+
+    internal bool ShowScreenshotSelection()
+    {
+        ShowDialog(); // Hide ends the modal loop and restores application focus.
+        return _accepted; // DialogResult would close the reusable window.
+    }
+
+    internal void ClearScreenshot()
+    {
+        if (IsVisible) Hide();
+        ScreenImage.Source = null;
+        _windows = _screens = null;
+        _hover = SelectionPx = null;
+        _dragging = false;
+        ReleaseMouseCapture();
     }
 
     /// <summary>
@@ -133,7 +206,6 @@ public partial class SnipOverlay : Window
         finally
         {
             try { overlay?.Close(); } catch { }
-            IsOpen = false;
         }
     }
 
@@ -268,7 +340,12 @@ public partial class SnipOverlay : Window
     {
         if (_done) return;
         _done = true;
-        DialogResult = ok;
+        if (_reusable)
+        {
+            _accepted = ok;
+            Hide();
+        }
+        else DialogResult = ok;
     }
 
     // ---------- hover pick (Window / Screen modes) ----------

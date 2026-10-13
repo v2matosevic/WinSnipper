@@ -19,6 +19,7 @@ KeyboardHook ────┤                       window/screen)   thumb)
 |---|---|
 | `KeyboardHook.cs` | `WH_KEYBOARD_LL` hook **on its own dedicated thread with its own message pump** — Windows delivers the callback on the installing thread, so this must never be the UI thread (see decisions). Sees the configured combos (snip + record) before the OS hotkey, swallows them, sends a dummy key so the Start menu doesn't open on Win-up. Rejects keys that match neither hotkey before reading modifier state. Also exposes `CaptureInterceptor` so the settings window can record a new hotkey — including Win-combos; that callback now runs on the hook thread. |
 | `ScreenCapture.cs` | Blits the whole virtual screen (all monitors) into a `CreateFileMapping` section through a `CreateDIBSection` bitmap, then hands that same memory to WPF via `Imaging.CreateBitmapSourceFromMemorySection` — the pixels are never copied. A `ConditionalWeakTable` keeps each section's handle alive exactly as long as its bitmap, with `GC.AddMemoryPressure` so the collector can see memory it does not own. |
+| `CaptureWorker.cs`, `HotkeyDispatch.cs` | Dedicated workers with bounded queues. Native screenshot capture and startup capture warmup run on an STA worker; subscribers leave the native keyboard callback through a separate handoff worker. Neither worker needs the shared thread pool to dequeue work. Captured pixels are frozen before returning to WPF. |
 | `Responsiveness.cs` | Reference-counted process-priority boost for the length of a capture, with its own expiry so an overlay left open on an unattended desk cannot pin the process at High. |
 | `Warmup.cs` | Runs the whole capture → overlay → crop → encode → render path once at startup, at idle, showing nothing and writing nothing, so the first hotkey press is not the one that pays for it. |
 | `SnippingTool.cs` | The one thing WinSnipper writes outside its own folder: `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingTool`, so Windows 11's other route into its built-in tool is closed while ours is open. The previous value goes into settings.json first, and unticking the setting restores it. |
@@ -104,12 +105,17 @@ survive the reboot and suppress the next logon's start.
   on the hook thread replaces the hook even if WPF is blocked. Replacement is
   installed before the old hook is removed. Key repeats and matching releases
   are swallowed; one pending UI request per operation prevents a backlog.
-- **Prepare the next screenshot overlay while idle:** retain one unshown WPF
-  shell, with no HWND and no screenshot. Refresh its monitor bounds and image
-  on capture. `IsOpen` is set when the HWND is created, not by constructing an
-  unshown shell. Capture cleanup closes the overlay and restores thumbnails.
-  This removes BAML/control construction from the warm shortcut path while
-  retaining the existing modal selection behavior.
+- **2026-10-13 screenshot window reuse:** retain one hidden screenshot HWND,
+  with no screenshot reference while idle. Selection still uses `ShowDialog`;
+  acceptance and cancellation call `Hide`, keeping the HWND for the next snip.
+  A separate accepted flag replaces `DialogResult` for this reusable window.
+  Refresh monitor bounds, mode and hover caches for every capture. `IsOpen`
+  covers a visible selector or a reservation while background capture runs,
+  never an idle hidden HWND. Live recording selectors still close normally.
+  Async requests retain their pending flag and priority scope through completion.
+  Capture failure restores thumbnails, releases the reservation and reports the
+  error. Timing handlers detach after every show, so the cached window cannot
+  retain old traces. Evidence and limits: [heavy-load work](PERFORMANCE-2026-10-13.md).
 
 - **Hotkey override**: `RegisterHotKey` cannot claim Win+Shift+S (the shell owns
   it). A low-level hook fires first and can swallow it. The override exists

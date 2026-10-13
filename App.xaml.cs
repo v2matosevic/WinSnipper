@@ -92,8 +92,9 @@ public partial class App : Application
         try
         {
             _hook = new KeyboardHook();
-            _hook.HotkeyPressed += timestamp => QueueCapture("snip", timestamp, _snips.StartSnip);
-            _hook.RecordHotkeyPressed += timestamp => QueueCapture("record", timestamp, _recordings.Toggle);
+            _hook.HotkeyPressed += (timestamp, receipt) => QueueCapture("snip", timestamp, _snips.StartSnipAsync, receipt);
+            _hook.RecordHotkeyPressed += (timestamp, receipt) => QueueCapture("record", timestamp,
+                trace => { _recordings.Toggle(trace); return Task.CompletedTask; }, receipt);
             StartHookWatchdog();
         }
         catch (Exception ex)
@@ -107,9 +108,9 @@ public partial class App : Application
 
         // Pay the first-capture cost now, at idle, rather than on the first
         // hotkey press.
-        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)(() =>
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)(async () =>
         {
-            Warmup.Run();
+            await Warmup.RunAsync();
             _snips.PrepareOverlay();
         }));
 
@@ -119,19 +120,19 @@ public partial class App : Application
 
     // ---------- stability ----------
 
-    private void QueueCapture(string operation, uint timestamp, Action<PerformanceTrace> action)
+    private void QueueCapture(string operation, uint timestamp, Func<PerformanceTrace, Task> action, uint? receipt = null)
     {
         ref int pending = ref (operation == "snip" ? ref _snipPending : ref _recordPending);
         if (Interlocked.Exchange(ref pending, 1) != 0) return;
-        var trace = new PerformanceTrace(operation, timestamp);
+        var trace = new PerformanceTrace(operation, timestamp, receipt);
         // This runs on a worker, never inside the low-level keyboard callback.
         var boost = Responsiveness.Interactive();
         try
         {
-            Dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
+            Dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(async () =>
             {
                 trace.Mark("dispatched");
-                try { action(trace); }
+                try { await action(trace); }
                 catch { trace.Finish("failed"); throw; }
                 finally
                 {
@@ -333,6 +334,7 @@ public partial class App : Application
         if (_recordings.IsRecording)
             try { _recordings.StopAsync().Wait(TimeSpan.FromSeconds(5)); } catch { }
         _hook?.Dispose();
+        CaptureWorker.Shutdown();
         _tray?.Dispose();
         // Only a run that actually started logs an exit, so a "startup" line
         // with no "exit" after it always means killed or crashed. Watchdog and

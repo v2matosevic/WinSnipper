@@ -10,19 +10,26 @@ public sealed class SnipManager
     private bool _active;
     private SnipOverlay? _prepared;
     private readonly HashSet<string> _usedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Func<PerformanceTrace, Task<(BitmapSource, Int32Rect)>> _capture;
+
+    public SnipManager() : this(trace => CaptureWorker.CaptureAsync(trace)) { }
+    internal SnipManager(Func<PerformanceTrace, Task<(BitmapSource, Int32Rect)>> capture) => _capture = capture;
 
     public void PrepareOverlay()
     {
-        if (_active || SnipOverlay.IsOpen || _prepared is not null) return;
+        if (_active || SnipOverlay.IsOpen || _prepared is { IsClosed: false }) return;
         try { _prepared = SnipOverlay.PrepareScreenshot(); }
         catch (Exception ex) { Util.LogCrash("Prepare overlay", ex); }
     }
 
-    public void StartSnip() => StartSnip(new PerformanceTrace("snip-menu"));
+    public async void StartSnip() => await StartSnipAsync(new PerformanceTrace("snip-menu"));
 
-    public void StartSnip(PerformanceTrace trace)
+    public async Task StartSnipAsync(PerformanceTrace trace)
     {
         if (_active || SnipOverlay.IsOpen) { trace.Finish("already-open"); return; }
+        using var reservation = SnipOverlay.TryReserveCapture();
+        if (reservation is null) { trace.Finish("already-open"); return; }
+        using var boost = Responsiveness.Interactive();
         _active = true;
         SnipOverlay? overlay = null;
         try
@@ -33,7 +40,8 @@ public sealed class SnipManager
             Int32Rect bounds;
             try
             {
-                (shot, bounds) = ScreenCapture.CaptureVirtualScreen();
+                trace.Mark("capture-queued");
+                (shot, bounds) = await _capture(trace);
                 trace.Mark("captured");
             }
             catch (Exception ex)
@@ -43,14 +51,15 @@ public sealed class SnipManager
                 throw;
             }
 
-            overlay = _prepared ?? SnipOverlay.PrepareScreenshot();
-            _prepared = null;
+            if (Application.Current.Dispatcher.HasShutdownStarted) return;
+            overlay = _prepared is { IsClosed: false } ? _prepared : SnipOverlay.PrepareScreenshot();
+            _prepared = overlay;
             overlay.SetScreenshot(shot, bounds);
             trace.TrackWindow(overlay);
-            bool? ok = overlay.ShowDialog();
+            bool ok = overlay.ShowScreenshotSelection();
             FloatingThumb.SetAllVisible(true);
 
-            if (ok == true && overlay.SelectionPx is { Width: > 0, Height: > 0 } sel)
+            if (ok && overlay.SelectionPx is { Width: > 0, Height: > 0 } sel)
             {
                 var cropped = new CroppedBitmap(shot, sel);
                 cropped.Freeze();
@@ -73,14 +82,12 @@ public sealed class SnipManager
         }
         finally
         {
-            try { overlay?.Close(); }
+            try { overlay?.ClearScreenshot(); }
             finally
             {
                 _active = false;
                 FloatingThumb.SetAllVisible(true);
                 trace.Finish("finished-before-render");
-                System.Windows.Application.Current.Dispatcher.BeginInvoke(
-                    System.Windows.Threading.DispatcherPriority.ApplicationIdle, (Action)PrepareOverlay);
             }
         }
     }

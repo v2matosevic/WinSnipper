@@ -23,6 +23,8 @@ test, harnesses).
 | Failure regression checks | `pwsh -NoProfile -File tools\test-reliability.ps1` |
 
 Latest stable delivery and exact verification: [docs/RELEASE-0.9.0.md](docs/RELEASE-0.9.0.md).
+Uninstalled heavy-load responsiveness work and its verification:
+[docs/PERFORMANCE-2026-10-13.md](docs/PERFORMANCE-2026-10-13.md).
 Optional ADE screenshot attachment requires a capture-protocol-v1 receiver;
 see [docs/ADE-INTEGRATION.md](docs/ADE-INTEGRATION.md). Do not infer live
 integration from the WinSnipper version alone.
@@ -61,6 +63,11 @@ integration from the WinSnipper version alone.
   runtime reads that prefix as a gap directive). Verify GUIDs against the
   Windows SDK headers.
 - Never block on WinRT async from the UI thread; await it.
+- Keep screenshot capture on `CaptureWorker`, including startup warmup.
+  The reusable screenshot selector finishes with `Hide`, never `DialogResult`
+  (which destroys its HWND). Clear its screenshot and refresh selection/monitor
+  state between shows. `IsOpen` includes the pending capture reservation, not
+  the idle hidden HWND. Live recording selection still uses `DialogResult`.
 
 ## Release
 

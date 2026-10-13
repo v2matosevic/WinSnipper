@@ -53,8 +53,9 @@ public sealed class KeyboardHook : IDisposable
     private volatile bool _disposed;
     private readonly bool[] _swallowed = new bool[256];
 
-    public event Action<uint>? HotkeyPressed;
-    public event Action<uint>? RecordHotkeyPressed;
+    public event Action<uint, uint>? HotkeyPressed;
+    public event Action<uint, uint>? RecordHotkeyPressed;
+    private readonly HotkeyDispatch _dispatch;
 
     /// <summary>
     /// While set, every key-down is routed here first (used by the settings
@@ -69,6 +70,13 @@ public sealed class KeyboardHook : IDisposable
     public KeyboardHook()
     {
         _ = Settings.Current; // Load settings before installing a system-wide callback.
+        _dispatch = new HotkeyDispatch((timestamp, receipt, recording) =>
+        {
+            if (_disposed) return;
+            if (recording) RecordHotkeyPressed?.Invoke(timestamp, receipt);
+            else HotkeyPressed?.Invoke(timestamp, receipt);
+        });
+        _dispatch.Start();
         _proc = Callback;
         _thread = new Thread(ThreadMain)
         {
@@ -78,10 +86,11 @@ public sealed class KeyboardHook : IDisposable
         };
         _thread.Start();
         _ready.Wait(TimeSpan.FromSeconds(5));
-        if (_startError is not null)
-            throw _startError;
-        if (_hookId == IntPtr.Zero)
-            throw new Win32Exception("The keyboard hook thread did not start.");
+        if (_startError is not null || _hookId == IntPtr.Zero)
+        {
+            Dispose();
+            throw _startError ?? new Win32Exception("The keyboard hook thread did not start.");
+        }
     }
 
     // ---------- hook thread ----------
@@ -207,16 +216,7 @@ public sealed class KeyboardHook : IDisposable
     {
         if (vk < _swallowed.Length) _swallowed[vk] = true;
         // Never run application subscribers inside the Windows hook timeout.
-        ThreadPool.QueueUserWorkItem(_ =>
-        {
-            if (_disposed) return;
-            try
-            {
-                if (recording) RecordHotkeyPressed?.Invoke(timestamp);
-                else HotkeyPressed?.Invoke(timestamp);
-            }
-            catch (Exception ex) { Util.LogCrash("Hotkey dispatch", ex); }
-        });
+        _dispatch.Enqueue(timestamp, recording);
     }
 
     private static bool Matches(uint vk, bool win, bool shift, bool ctrl, bool alt,
@@ -258,6 +258,7 @@ public sealed class KeyboardHook : IDisposable
             PostThreadMessage(_threadId, 0x0012 /* WM_QUIT */, IntPtr.Zero, IntPtr.Zero);
             _thread.Join(TimeSpan.FromSeconds(2));
         }
+        _dispatch.Dispose();
         _ready.Dispose();
     }
 

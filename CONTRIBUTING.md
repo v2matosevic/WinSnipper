@@ -43,9 +43,12 @@ pwsh -NoProfile -File tools\measure-capture.ps1
 
 For shortcut dispatch and overlay lifecycle changes, also run
 `pwsh -NoProfile -File tools\test-hotkey.ps1`. It checks worker dispatch,
-repeat/release suppression, queued-request coalescing, boost expiry and
-prepared-overlay pixel equivalence without installing hooks, sending input,
-showing windows or touching the clipboard.
+repeat/release suppression, asynchronous request coalescing, boost expiry,
+capture failure cleanup and prepared-overlay pixel equivalence. It also opens
+a small nonactivated modal window far offscreen to verify accept/cancel/accept
+on the same HWND, clearing idle pixels and detaching per-show timing handlers.
+It installs no hooks, sends no input, shows nothing on the desktop and never
+touches the clipboard. The real capture-worker check uses the app's DPI manifest.
 
 This compares current capture source with the pre-optimization baseline in a
 temporary .NET 8 harness using the app's DPI manifest. It captures the desktop
