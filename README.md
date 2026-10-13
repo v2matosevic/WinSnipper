@@ -38,10 +38,13 @@ on a dedicated worker, reducing repeated opening work and keeping capture
 waits off the UI thread. [Release details](docs/RELEASE-0.9.1.md) include
 verification and the limits of the heavy-load tests.
 
-**Not on winget yet.** The submission ([winget-pkgs#386835](https://github.com/microsoft/winget-pkgs/pull/386835))
-passed validation but was auto-closed as stale on 2026-06-26: the Microsoft CLA
-was never signed, so the bot kept it blocked. Manifests for the current version
-live in `packaging/winget/` and are ready to resubmit once that's done.
+**For the current version, use GitHub Releases.** As checked on October 13,
+2026, the [winget community manifests](https://github.com/microsoft/winget-pkgs/tree/master/manifests/v/v2matosevic/WinSnipper)
+contain the older 0.5.1 package. The 0.9.1 manifests live in `packaging/winget/`
+and validate locally, but this release has not submitted them to the community
+repository. A previous [submission](https://github.com/microsoft/winget-pkgs/pull/386835)
+is closed with a Needs-CLA label; any required Microsoft CLA must be signed by
+the maintainer.
 
 ### 🤖 Install via an AI agent
 

@@ -99,6 +99,11 @@ The README, changelog, architecture/contributing guidance and performance record
 document the delivered changes. Winget manifests target 0.9.1, the public lite
 URL and its exact hash; `winget validate --manifest packaging/winget` passed.
 The validator does not check the external .NET runtime dependency. Community
-winget submission remains separate: the existing Microsoft CLA requirement
-has not been completed by this release, so WinSnipper is not claimed to be
-available from the winget community repository.
+winget submission remains separate: this release did not submit 0.9.1.
+Live inspection of the [community package directory](https://github.com/microsoft/winget-pkgs/tree/master/manifests/v/v2matosevic/WinSnipper)
+on October 13 found only version 0.5.1; its installer URL points to this same
+project's v0.5.1 GitHub asset. The README's earlier "Not on winget" claim was
+therefore incorrect and has been replaced with the precise version distinction.
+The older PR386835 is closed, unmerged, with Needs-CLA; those historic labels
+alone do not establish the maintainer's current account agreement state.
+Any Microsoft CLA signing requested for a new submission remains an owner step.

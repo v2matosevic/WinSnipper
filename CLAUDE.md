@@ -82,5 +82,6 @@ integration from the WinSnipper version alone.
 
 The app's daily update check compares its assembly version with the latest
 release tag, so a release reaches existing installs as a tray notice. Winget
-submission stays blocked until the maintainer signs the Microsoft CLA; that is
-a human step.
+community distribution is separate: check the live catalog before claiming
+a version is available. Any Microsoft CLA signing is an owner-only step;
+do not infer current account approval from an old closed PR's labels.
