@@ -1,5 +1,25 @@
 ﻿# Changelog
 
+## 0.9.1 — 2026-10-13
+
+Reduce repeated screenshot-opening work and keep native capture waits off the UI thread.
+
+- Reuse the screenshot selection window between snips. Clear its screenshot
+  while hidden and refresh selection mode, window targets and screen bounds
+  before every capture. Acceptance and cancellation preserve the window.
+- Run screenshot capture and its startup warmup on a dedicated worker.
+  Reserve selection while pixels are pending so screenshot and recording
+  selectors cannot overlap; restore thumbnails and priority on failure.
+- Give hotkey handoff a bounded dedicated worker, keeping subscribers outside
+  the native keyboard callback and avoiding the general thread-pool queue.
+- Track each reused window opening, capture queue/work/UI-resume stages,
+  keyboard handoff, effective priority and GC pauses. Detach completed timing
+  handlers and release the worker's last bitmap while idle.
+- Expand offscreen regression checks for modal reuse, changed physical bounds,
+  state reset, asynchronous failure cleanup and real frozen background pixels.
+  These checks do not establish that every system-load stall is resolved.
+  See [evidence and limits](docs/PERFORMANCE-2026-10-13.md).
+
 ## 0.9.0 — 2026-10-03
 
 - Attach the current edited PNG, thumbnail or history screenshot to a selected ADE agent draft. The receiving app owns the bytes; retries use the same content and operation ID. Nothing is submitted automatically.

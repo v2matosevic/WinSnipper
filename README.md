@@ -33,6 +33,11 @@ Two flavors:
 Both need the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
 Tick *Start with Windows* in Settings if it earns a permanent spot.
 
+Version 0.9.1 reuses the screenshot selection window and runs native capture
+on a dedicated worker, reducing repeated opening work and keeping capture
+waits off the UI thread. [Release details](docs/RELEASE-0.9.1.md) include
+verification and the limits of the heavy-load tests.
+
 **Not on winget yet.** The submission ([winget-pkgs#386835](https://github.com/microsoft/winget-pkgs/pull/386835))
 passed validation but was auto-closed as stale on 2026-06-26: the Microsoft CLA
 was never signed, so the bot kept it blocked. Manifests for the current version
@@ -285,7 +290,8 @@ Ideas queued up — PRs welcome:
 
 ## Docs
 
-- [0.9.0 release and installation](docs/RELEASE-0.9.0.md)
+- [0.9.1 release and installation](docs/RELEASE-0.9.1.md)
+- [Heavy-load responsiveness evidence](docs/PERFORMANCE-2026-10-13.md)
 - [Failure handling and verification](docs/RELIABILITY.md)
 - [Optional ADE integration](docs/ADE-INTEGRATION.md)
 
