@@ -1,5 +1,10 @@
 # Heavy-load investigation, 2026-10-13
 
+The fixes were subsequently versioned, installed and published as stable 0.9.1.
+Current source, public artifact hashes and installation evidence are in
+[the release record](RELEASE-0.9.1.md). The chronology below retains the initial
+unversioned local-install evidence, including its earlier process ID and hashes.
+
 Investigation, implementation and authorized local installation for the owner's report that WinSnipper becomes slow or unresponsive when the PC is heavily used. Source baseline: `5b6057c`; working tree was clean at the start. The fixes were committed as `88824f7` and installed October 13. The OCR app runs as PID 57476, started at 14:29:44 from the rebuilt `dist/WinSnipper-OCR.exe`. Its assembly version stays 0.9.0.0; this is a local fix build, not a new public release.
 
 ## Local installation verification

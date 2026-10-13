@@ -22,7 +22,7 @@ test, harnesses).
 | Capture benchmark | `pwsh -NoProfile -File tools\measure-capture.ps1` |
 | Failure regression checks | `pwsh -NoProfile -File tools\test-reliability.ps1` |
 
-0.9.1 release preparation and delivery evidence: [docs/RELEASE-0.9.1.md](docs/RELEASE-0.9.1.md).
+Latest stable delivery and exact verification: [docs/RELEASE-0.9.1.md](docs/RELEASE-0.9.1.md).
 Heavy-load responsiveness implementation (`88824f7`) and verification:
 [docs/PERFORMANCE-2026-10-13.md](docs/PERFORMANCE-2026-10-13.md).
 Optional ADE screenshot attachment requires a capture-protocol-v1 receiver;
