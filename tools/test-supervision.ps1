@@ -25,16 +25,19 @@ $script:running = $false
 $script:events = [Collections.Generic.List[string]]::new()
 $script:registeredLevel = ''
 $script:taskState = 'Ready'
+$script:taskMatches = $false
 function Assert($condition, $message) { if (-not $condition) { throw $message } }
 function Test-ElevatedTask { return $script:existingHigh }
 function Get-ScheduledTask { param($TaskName,$ErrorAction) return [pscustomobject]@{State=$script:taskState} }
 function Test-Administrator { return $script:isAdmin }
 function Assert-Exe { return 'X:\NeverUsed\WinSnipper.exe' }
 function Get-AppProcess { if ($script:running) { return [pscustomobject]@{ Id = 123 } } }
+function Get-AppTaskInstance { param($ProcessId) if ($script:taskMatches -and $ProcessId -eq 123) { return $script:fakeInstance } }
 function Write-Step($msg) { }
 function Write-Ok($msg) { }
 function Write-Warn($msg) { }
 $script:realShortcuts = ${function:Install-Shortcuts}
+$script:realBuild = ${function:Invoke-Build}
 
 # Replace all mutation boundaries before invoking any extracted production function.
 function Start-Process { throw 'Unexpected direct process launch' }
@@ -51,6 +54,8 @@ function New-ScheduledTaskPrincipal { param($UserId,$LogonType,$RunLevel) return
 function Remove-ItemProperty { param($Path,$Name,$ErrorAction) $script:events.Add('remove-run') }
 function Set-ItemProperty { param($Path,$Name,$Value) $script:events.Add('set-run') }
 function New-Item { param($Path,[switch]$Force) $script:events.Add('new-key') }
+function Test-Path { param($Path) return $false }
+function Set-Content { param($Path,$Value) $script:events.Add('quit-flag') }
 function Remove-Item { param($Path,[switch]$Force,$ErrorAction) $script:events.Add('clear-quit') }
 function Start-Sleep { param($Milliseconds) }
 function Start-ScheduledTask { param($TaskName) $script:events.Add('task-start'); $script:running=$true }
@@ -119,6 +124,36 @@ foreach ($row in $script:shortcutRows) {
     Assert ($row.TargetPath -eq 'X:\NeverUsed\WinSnipper.exe' -and $row.Arguments -eq '') 'Default shortcut changed'
 }
 Write-Output 'PASS: elevated shortcuts use hidden supervisor; standard shortcuts use app directly'
+
+# Task delegation is allowed only after matching the current user's exact PID.
+$script:fakeInstance = [pscustomobject]@{}
+$script:stopFault=$false
+$script:fakeInstance | Add-Member ScriptMethod Stop {
+    $script:events.Add('task-stop')
+    if ($script:stopFault) { throw 'Injected task stop failure' }
+    $script:running=$false
+}
+$script:existingHigh=$true
+$script:isAdmin=$false
+$script:running=$true
+$script:taskMatches=$false
+$script:events.Clear()
+$rejected=$false
+try { Invoke-Stop } catch { $rejected=$_.Exception.Message -match 'not a verified instance' }
+Assert ($rejected -and $script:events.Count -eq 0 -and $script:running) 'Unverified elevated stop caused side effects'
+$script:taskMatches=$true
+Invoke-Stop
+Assert (($script:events -join ',') -eq 'new-key,quit-flag,task-stop' -and -not $script:running) 'Verified delegated stop did not use exact task instance'
+Write-Output 'PASS: unverified elevated stop changes nothing; verified owner task stops without direct process access'
+$script:running=$true
+$script:stopFault=$true
+$script:events.Clear()
+$Flavor='both'
+$rejected=$false
+try { & $script:realBuild } catch { $rejected=$_.Exception.Message -match 'Injected task stop failure' }
+Assert ($rejected -and $script:running -and ($script:events -join ',') -eq 'new-key,quit-flag,task-stop,clear-quit') 'Failed build stop left supervision disabled or continued publishing'
+$script:stopFault=$false
+Write-Output 'PASS: failed supervised stop preserves running app and restores watchdog marker before aborting build'
 
 # Setup validation must happen before any install/restart boundary.
 function Install-Shortcuts { $script:events.Add('shortcuts') }

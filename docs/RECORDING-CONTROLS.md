@@ -1,8 +1,8 @@
 # Recording controls and responsive selection
 
-Implemented and verified locally on 2026-10-24. These changes have not yet been
-installed into the running WinSnipper or published as a release. Existing local
-elevated startup remains configured; installation must preserve it.
+Implemented and verified locally on 2026-10-24. The owner approved installation;
+the local supervised update preserves elevated startup. No public release has
+been published. The installed process and payload evidence are recorded below.
 
 ## Changes
 
@@ -33,6 +33,10 @@ elevated startup remains configured; installation must preserve it.
 - Media Foundation startup now runs on the recorder thread. Readiness resolves
   even on encoder startup failure, so the UI cannot wait forever for controls.
   Resume publishes the updated paused-time total before making capture active.
+- The app normalizes its own startup process priority to Normal before the
+  first capture. Task Scheduler's default priority is Below Normal; previously
+  it stayed there until an interactive boost completed. Capture still uses the
+  existing short-lived boost and expiry. No other application's priority changes.
 
 ## Capture exclusion
 
@@ -92,13 +96,38 @@ and tray controls provide independent routes.
 
 ## Local installation
 
-Save open edits and finish any active recording. From administrator PowerShell:
+Save open edits and finish any active recording. After owner approval, use the
+supervisor (administrator PowerShell is needed only for an unmanaged elevated instance):
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "B:\Coding\WinSnipper\tools\winsnipper.ps1" build -Flavor both
 ```
 
-The existing supervisor publishes both flavors, stands the watchdog down during
-replacement, and restarts the installed elevated task. Approval for that restart
-belongs to the owner under the process-closure rule. No extra startup setup or
-native Windows app removal is needed.
+The supervisor publishes both flavors, stands the watchdog down during
+replacement, and restarts the installed elevated task. It can stop its exact
+current-user supervised instance using existing Task Scheduler permissions, so
+that installation does not require another elevated terminal. Unmanaged elevated
+instances still require administrator PowerShell. Stop/restart always requires
+the owner's authorization under the process-closure rule. A failed task stop
+preserves the running app and removes a newly-created quit marker. No extra
+startup setup or native Windows app removal is needed.
+
+## Installed verification, 2026-10-24
+
+The owner approved installation. The supervisor stopped the exact verified
+current-user task instance, published both flavors and restarted through the
+existing Highest task without another elevated shell. A final update includes
+Normal startup-priority initialization. The installed files were built at
+16:46:02 (lite) and 16:46:06 (OCR). Read-only verification at 16:49 confirmed
+WinSnipper-OCR PID 63124 at High integrity (0x3000), Normal process priority
+(0x20), Highest task startup and no quit marker. SHA256 of each installed exe
+matches its published staging exe. `artifacts/recording-controls/install.json`
+records the exact hashes, timestamps and process state.
+
+The startup-priority regression passes in `tools/test-hotkey.ps1`, along with
+the existing hotkey, overlay and capture checks. Supervisor tests pass in
+PowerShell 7 and Windows PowerShell 5.1, including exact task-instance delegation,
+rejection before mutation for unverified processes, and recovery after injected
+task-stop failure. The real owner-approved update verifies that the delegated
+stop/start works with existing task permissions. No task ACL, run level or
+credential was changed. Game-specific hands-on acceptance remains pending.

@@ -37,9 +37,13 @@ Start Menu shortcuts go through the script's `start` command, which uses that
 task. The updated app's startup checkbox controls the elevated task and never
 recreates a standard-user Run entry. Turning startup off disables its watchdog
 triggers too; it does not stop the current process. A later manual launch uses
-RunAs while preserving disabled background startup. Stop/restart/build commands
-require an administrator shell for an elevated installation and reject a
-limited shell before touching the quit marker.
+RunAs while preserving disabled background startup. Stop/restart/build can
+control the elevated app through the existing current-user task without a new
+elevated shell. The supervisor first matches the task owner SID, single executable
+action, `--watchdog` arguments, running engine PID and current action. An
+unverified elevated process still requires administrator PowerShell; rejection
+happens before touching the quit marker. This uses existing task permissions,
+grants no new rights, and does not waive the owner's process-stop approval rule.
 
 This mode runs the whole app as administrator. Windows can restrict dragging
 captures into standard-user apps. Clipboard capture/paste and real terminal

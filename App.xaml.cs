@@ -73,6 +73,8 @@ public partial class App : Application
         }
         _mutex = mutex;
 
+        Responsiveness.Initialize();
+
         // A run that never logs a matching "exit" line was killed or crashed
         // hard; that difference is the whole point of session.log.
         Util.ClearUserQuit();

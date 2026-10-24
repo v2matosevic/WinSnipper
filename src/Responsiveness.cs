@@ -23,6 +23,10 @@ public static class Responsiveness
     private static Timer? _expiry;
     private static int _generation;
 
+    /// <summary>Task Scheduler defaults to Below Normal. Normalize our own
+    /// interactive tray process before the first capture, not only after a boost.</summary>
+    public static void Initialize() => Apply(ProcessPriorityClass.Normal);
+
     /// <summary>Raises priority now and restores it when the scope is disposed.</summary>
     public static IDisposable Interactive()
     {

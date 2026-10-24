@@ -90,6 +90,41 @@ function Get-AppProcess {
     Get-Process -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
 }
 
+function Get-AppTaskInstance([int]$ProcessId) {
+    try {
+        $exe = Get-Exe
+        if (-not $exe) { return $null }
+        $service = New-Object -ComObject 'Schedule.Service'
+        $service.Connect()
+        $task = $service.GetFolder('\').GetTask($TaskName)
+        $definition = $task.Definition
+        $userId = [string]$definition.Principal.UserId
+        $taskSid = if ($userId -like 'S-1-*') { $userId } else {
+            (New-Object Security.Principal.NTAccount($userId)).Translate([Security.Principal.SecurityIdentifier]).Value
+        }
+        if ($taskSid -ne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) { return $null }
+        if ($definition.Actions.Count -ne 1) { return $null }
+        $action = $definition.Actions.Item(1)
+        if (-not [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($action.Path), [IO.Path]::GetFullPath($exe))) { return $null }
+        if ([string]$action.Arguments -ne '--watchdog') { return $null }
+        foreach ($instance in $task.GetInstances(0)) {
+            if ($instance.EnginePID -eq $ProcessId -and [StringComparer]::OrdinalIgnoreCase.Equals([string]$instance.CurrentAction, $exe)) {
+                return $instance
+            }
+        }
+    } catch { return $null } # Unknown ownership must never permit stopping a different task.
+    return $null
+}
+
+function Assert-AppControl {
+    if ((Test-ElevatedTask) -and -not (Test-Administrator)) {
+        $proc = Get-AppProcess
+        if ($proc -and -not (Get-AppTaskInstance -ProcessId $proc.Id)) {
+            throw 'The elevated app is not a verified instance of this user''s WinSnipper task. Use administrator PowerShell. No changes were made.'
+        }
+    }
+}
+
 function Assert-Exe {
     $exe = Get-Exe
     if (-not $exe) {
@@ -132,6 +167,7 @@ function Invoke-Start {
 
 function Invoke-Stop {
     param([switch]$Deliberate = $true)
+    Assert-AppControl
     $proc = Get-AppProcess
     if (-not $proc) {
         Write-Step 'Not running.'
@@ -139,19 +175,40 @@ function Invoke-Stop {
                            Set-Content -Path $QuitFlag -Value (Get-Date -Format o) }
         return
     }
-    # Written before the kill so the keep-alive task doesn't race us and
+    $instance = $null
+    if ((Test-ElevatedTask) -and -not (Test-Administrator)) {
+        $instance = Get-AppTaskInstance -ProcessId $proc.Id
+        if ($null -eq $instance) { throw 'WinSnipper task ownership changed before stop. No changes were made.' }
+    }
+    $hadQuitFlag = Test-Path $QuitFlag
+    # Written before the stop so the keep-alive task doesn't race us and
     # bring it straight back.
     if ($Deliberate) {
         New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
         Set-Content -Path $QuitFlag -Value (Get-Date -Format o)
     }
-    Stop-Process -Id $proc.Id -Force
-    Start-Sleep -Milliseconds 800
+    try {
+        if ($null -ne $instance) {
+            # Task Scheduler permits its owner to stop their own elevated task.
+            # This targets the exact verified action/PID and grants no new rights.
+            $instance.Stop()
+        } else { Stop-Process -Id $proc.Id -Force }
+        for ($attempt = 0; $attempt -lt 50; $attempt++) {
+            $remaining = Get-AppProcess
+            if (-not $remaining) { break }
+            if ($remaining.Id -ne $proc.Id) { throw 'A different WinSnipper instance started during stop.' }
+            Start-Sleep -Milliseconds 100
+        }
+        if (Get-AppProcess) { throw 'WinSnipper did not exit after the stop request.' }
+    } catch {
+        if ($Deliberate -and -not $hadQuitFlag) { Remove-Item $QuitFlag -Force -ErrorAction SilentlyContinue }
+        throw
+    }
     Write-Ok "Stopped (pid $($proc.Id))."
 }
 
 function Invoke-Restart {
-    Invoke-Stop -Deliberate:$false
+    Invoke-Stop # Suppress watchdog races until Invoke-Start clears the marker.
     Start-Sleep -Milliseconds 500
     Invoke-Start
 }
@@ -167,12 +224,11 @@ function Invoke-Build {
     # mid-build, relaunches the app and locks the exe we're about to replace.
     New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
     Set-Content -Path $QuitFlag -Value (Get-Date -Format o)
-    if ($wasRunning) {
-        Write-Step 'Stopping the running instance so the exe can be replaced.'
-        Invoke-Stop -Deliberate:$false
-    }
-
     try {
+        if ($wasRunning) {
+            Write-Step 'Stopping the running instance so the exe can be replaced.'
+            Invoke-Stop -Deliberate:$false
+        }
         $csproj = Join-Path $Root 'WinSnipper.csproj'
         $targets = @()
         if ($which -in 'lite', 'both') { $targets += @{ Ocr = $false; Sub = 'lite'; Out = 'WinSnipper.exe' } }
@@ -199,7 +255,12 @@ function Invoke-Build {
     }
     finally {
         # Invoke-Start clears the flag itself; otherwise put it back as it was.
-        if ($wasRunning) { Invoke-Start }
+        if ($wasRunning) {
+            # A failed stop may leave the original process alive. Do not leave
+            # a newly-created quit marker disabling its future crash recovery.
+            if (-not $wasQuitFlag) { Remove-Item $QuitFlag -Force -ErrorAction SilentlyContinue }
+            Invoke-Start
+        }
         elseif (-not $wasQuitFlag) { Remove-Item $QuitFlag -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -411,11 +472,9 @@ function Invoke-Logs {
 
 # ---------------------------------------------------------------- dispatch
 
-# A limited shell cannot stop an elevated instance. Fail before changing the
-# quit marker, otherwise a failed stop/build would disable crash recovery.
-if ($Command -in @('stop', 'restart', 'build') -and (Test-ElevatedTask) -and -not (Test-Administrator)) {
-    throw 'This WinSnipper installation runs elevated. Use an administrator PowerShell window for stop, restart or build. No changes were made.'
-}
+# A limited shell may control only its exact, current-user supervised instance.
+# Validate before changing the quit marker or publishing any files.
+if ($Command -in @('stop', 'restart', 'build')) { Assert-AppControl }
 
 switch ($Command) {
     'setup'     { Invoke-Setup }

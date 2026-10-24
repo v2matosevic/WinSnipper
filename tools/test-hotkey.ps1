@@ -111,6 +111,17 @@ static class Checks
         Assert(count == 1, "record routed to screenshot");
         Console.WriteLine("PASS: recording dispatch stays separate");
 
+        // A scheduler/host may launch Below Normal. Startup must restore the
+        // intended baseline before any user hotkey is pressed.
+        using (var self = Process.GetCurrentProcess())
+        {
+            self.PriorityClass = ProcessPriorityClass.BelowNormal;
+            Responsiveness.Initialize();
+            self.Refresh(); // Process caches properties changed through another handle.
+            Assert(self.PriorityClass == ProcessPriorityClass.Normal, "startup retained background process priority");
+        }
+        Console.WriteLine("PASS: startup normalizes its own background priority before the first capture");
+
         // Simulate timer expiry without waiting 30 seconds or leaving priority raised.
         using (var old = Responsiveness.Interactive())
         {
