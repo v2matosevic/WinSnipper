@@ -113,3 +113,15 @@ function definitions with fake task, registry and process boundaries. It runs
 under PowerShell 7 and Windows PowerShell 5.1 without touching live tasks,
 registry values or processes. Both app flavors must also compile. None of these
 checks prove physical hotkey interception over an administrator window.
+
+At 15:32 the owner ran `setup -Elevated -Rebuild` from administrator PowerShell.
+Both flavors were published through the supervisor and WinSnipper was restarted.
+Read-only verification at 15:35 confirmed one WinSnipper-OCR process (PID 19556)
+at High integrity (0x3000), the keep-alive task at Highest with the correct
+`dist\WinSnipper-OCR.exe --watchdog` action, and no direct HKCU Run entry.
+Microsoft.ScreenSketch remained absent and PrintScreen's native binding remained
+off. Session logs show screenshot hotkey dispatch and overlay rendering by that
+new process at 15:35:06 and 15:35:08. These logs do not identify the foreground
+app; explicit administrator-terminal acceptance and drag/drop behavior have not
+been confirmed by the owner. The local installation is verified; no GitHub
+release was published for this change.
