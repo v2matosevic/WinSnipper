@@ -1,9 +1,10 @@
 # Windows capture default, 0.9.2 candidate
 
-Implemented and verified in isolated builds on 2026-10-24. This candidate is not
-installed or selected as the Windows default yet. The existing 0.9.1 process
-was left running. No protected UserChoice/hash, Windows system executable or
-global capture privacy policy was changed.
+Implemented and installed locally on 2026-10-24 after owner approval. The owner
+selected WinSnipper in Windows Default apps; the effective choice and PrintScreen
+route were verified. No protected UserChoice/hash was written by the app or agent,
+and no Windows system executable or global capture privacy policy was changed.
+No public 0.9.2 release has been published.
 
 ## Scope and flow
 
@@ -69,13 +70,32 @@ Results and the actual XAML preview are in `artifacts/capture-integration`.
 The integration test installs no hooks, sends no keyboard/mouse input, opens no
 on-desktop test window or Windows Settings, and takes no screenshot. Existing
 recording regressions use their documented private recording fixtures. Cross-integrity forwarding
-and supervised cold startup must be probed after installation. The owner then
-chooses the default and tests both shortcuts after closing the app. No universal
+and supervised cold startup subsequently passed on the installed process. The
+owner's default choice is verified; physical shortcut testing after closing the
+app remains the final acceptance step. No universal
 Windows-build, game or servicing-reset guarantee follows from the isolated checks.
 Direct launches of Windows system executables, Game Bar and other capture APIs
 are outside this default-interface integration.
 
 ## Activation and reversal
+
+### Installed verification on 2026-10-24
+
+The approved supervisor build installed both 0.9.2 executables at 20:40, registered
+their capabilities and restarted the existing Highest task. Each installed file's
+SHA256 matches its published stage. A standard-user probe reached elevated PID
+8500. The approved cold test then stopped that instance, verified the deliberate-
+quit marker, and launched `--capture-probe`. It started elevated PID 9324, cleared
+the marker and acknowledged without opening a selector. Native token/priority
+queries verified High integrity (0x3000) and Normal priority (0x20). No new task
+privilege or ACL was granted.
+
+The owner selected WinSnipper on the Windows page opened by `--capture-defaults`.
+Read-only verification at 20:46 found UserChoice ProgId `WinSnipper.ScreenClip`
+and `PrintScreenKeyForSnippingTool=1`. The watcher preserved the original saved
+value (-1/absent), with ownership captured and last-applied value 1. Exact payload
+hashes and process/choice evidence are in `artifacts/capture-integration/install.json`.
+Physical Win+Shift+S and PrintScreen tests after tray exit remain owner-run.
 
 After approval for the running app's restart:
 

@@ -165,9 +165,10 @@ and clipboard use work independently. [Requirements and recovery](docs/ADE-INTEG
 
 ## Screen recording
 
-The [0.9.2 Windows capture default candidate](docs/WINDOWS-CAPTURE-DEFAULT.md)
-adds on-demand launch after closing the app. It requires installation and the
-owner's one-time selection in Windows Default apps; it is not activated yet.
+The [0.9.2 Windows capture default integration](docs/WINDOWS-CAPTURE-DEFAULT.md)
+adds on-demand launch after closing the app. It is installed and owner-selected
+locally; physical shortcut acceptance is pending. GitHub's public 0.9.1 release
+does not include this integration yet.
 
 The control changes below are in current source and locally verified; see
 [verification and installation state](docs/RECORDING-CONTROLS.md).
