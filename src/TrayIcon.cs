@@ -9,8 +9,12 @@ public sealed class TrayIcon : IDisposable
 {
     private readonly NotifyIcon _icon;
     private readonly Icon _glyph;
+    private readonly ToolStripMenuItem _recordItem;
+    private readonly ToolStripMenuItem _pauseItem;
+    private readonly ToolStripMenuItem _controlsItem;
 
-    public TrayIcon(Action onNewSnip, Action onNewRecording, Action onHistory, Action onSettings, Action onExit)
+    public TrayIcon(Action onNewSnip, Action onNewRecording, Action onHistory, Action onSettings, Action onExit,
+        Action onPauseRecording, Action onShowRecordingControls)
     {
         // Use the exe's embedded icon; fall back to the runtime-drawn glyph
         // (e.g. when running through the dotnet host).
@@ -25,8 +29,15 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add(snipItem);
 
         var recordItem = new ToolStripMenuItem("New recording") { ShortcutKeyDisplayString = Util.RecordHotkeyDisplay };
+        _recordItem = recordItem;
         recordItem.Click += (_, _) => onNewRecording();
         menu.Items.Add(recordItem);
+        _pauseItem = new ToolStripMenuItem("Pause recording") { ShortcutKeyDisplayString = "Ctrl+Shift+F10", Visible = false };
+        _pauseItem.Click += (_, _) => onPauseRecording();
+        menu.Items.Add(_pauseItem);
+        _controlsItem = new ToolStripMenuItem("Show recording controls") { Visible = false };
+        _controlsItem.Click += (_, _) => onShowRecordingControls();
+        menu.Items.Add(_controlsItem);
 
         var historyItem = new ToolStripMenuItem("Capture history");
         historyItem.Click += (_, _) => onHistory();
@@ -67,6 +78,14 @@ public sealed class TrayIcon : IDisposable
             recordItem.ShortcutKeyDisplayString = Util.RecordHotkeyDisplay;
             _icon.Text = $"WinSnipper {Util.AppVersion} — {Util.CurrentHotkeyDisplay} to snip";
         };
+    }
+
+    public void UpdateRecordingState(bool recording, bool paused)
+    {
+        _recordItem.Text = recording ? "Stop and save recording" : "New recording";
+        _recordItem.ShortcutKeyDisplayString = recording ? "Ctrl+Shift+F12" : Util.RecordHotkeyDisplay;
+        _pauseItem.Visible = _controlsItem.Visible = recording;
+        _pauseItem.Text = paused ? "Resume recording" : "Pause recording";
     }
 
     public void ShowError(string message) =>

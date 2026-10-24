@@ -55,7 +55,11 @@ public sealed class KeyboardHook : IDisposable
 
     public event Action<uint, uint>? HotkeyPressed;
     public event Action<uint, uint>? RecordHotkeyPressed;
+    public event Action? PauseHotkeyPressed;
+    public event Action? StopHotkeyPressed;
+    public static volatile bool RecordingActive;
     private readonly HotkeyDispatch _dispatch;
+    private readonly HotkeyDispatch _controlDispatch;
 
     /// <summary>
     /// While set, every key-down is routed here first (used by the settings
@@ -77,6 +81,13 @@ public sealed class KeyboardHook : IDisposable
             else HotkeyPressed?.Invoke(timestamp, receipt);
         });
         _dispatch.Start();
+        _controlDispatch = new HotkeyDispatch((_, _, pause) =>
+        {
+            if (_disposed) return;
+            if (pause) PauseHotkeyPressed?.Invoke();
+            else StopHotkeyPressed?.Invoke();
+        });
+        _controlDispatch.Start();
         _proc = Callback;
         _thread = new Thread(ThreadMain)
         {
@@ -177,7 +188,8 @@ public sealed class KeyboardHook : IDisposable
         // before we touch the modifier state.
         var s = Settings.Current;
         bool printScreen = vk == VK_SNAPSHOT && s.ReplaceSnippingTool;
-        if (!printScreen && vk != s.HotkeyVk && vk != s.RecHotkeyVk)
+        bool controlKey = RecordingActive && (vk == 0x79 /* F10 */ || vk == 0x7B /* F12 */);
+        if (!printScreen && !controlKey && vk != s.HotkeyVk && vk != s.RecHotkeyVk)
             return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
         uint time = (uint)Marshal.ReadInt32(lParam, OffsetTime);
@@ -193,6 +205,12 @@ public sealed class KeyboardHook : IDisposable
         bool shift = IsDown(VK_SHIFT);
         bool ctrl = IsDown(VK_CONTROL);
         bool alt = IsDown(VK_MENU);
+
+        if (MatchesRecordingControl(vk, win, shift, ctrl, alt))
+        {
+            DispatchControl(vk, time, pause: vk == 0x79);
+            return (IntPtr)1;
+        }
 
         if (Matches(vk, win, shift, ctrl, alt,
                 s.HotkeyVk, s.ModWin, s.ModShift, s.ModCtrl, s.ModAlt))
@@ -217,6 +235,15 @@ public sealed class KeyboardHook : IDisposable
         if (vk < _swallowed.Length) _swallowed[vk] = true;
         // Never run application subscribers inside the Windows hook timeout.
         _dispatch.Enqueue(timestamp, recording);
+    }
+
+    private static bool MatchesRecordingControl(uint vk, bool win, bool shift, bool ctrl, bool alt) =>
+        RecordingActive && !win && shift && ctrl && !alt && (vk == 0x79 || vk == 0x7B);
+
+    private void DispatchControl(uint vk, uint timestamp, bool pause)
+    {
+        if (vk < _swallowed.Length) _swallowed[vk] = true;
+        _controlDispatch.Enqueue(timestamp, pause);
     }
 
     private static bool Matches(uint vk, bool win, bool shift, bool ctrl, bool alt,
@@ -259,6 +286,7 @@ public sealed class KeyboardHook : IDisposable
             _thread.Join(TimeSpan.FromSeconds(2));
         }
         _dispatch.Dispose();
+        _controlDispatch.Dispose();
         _ready.Dispose();
     }
 

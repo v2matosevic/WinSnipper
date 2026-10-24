@@ -14,13 +14,15 @@
         <Style x:Key="HudBtn" TargetType="Button">
             <Setter Property="Foreground" Value="#FFE8EAEE"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Width" Value="30"/>
-            <Setter Property="Height" Value="26"/>
+            <Setter Property="MinWidth" Value="82"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Focusable" Value="False"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="B" Background="Transparent" CornerRadius="6">
+                        <Border x:Name="B" Background="#FF2D3038" CornerRadius="6" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -33,20 +35,35 @@
             </Setter>
         </Style>
     </Window.Resources>
-    <Border Background="#F21C1D22" CornerRadius="14" Padding="12,5"
+    <Border Background="#FA1C1D22" CornerRadius="12" Padding="12,9"
             BorderBrush="#4DFFFFFF" BorderThickness="1"
             MouseLeftButtonDown="Bar_MouseLeftButtonDown">
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="12" ShadowDepth="1" Opacity="0.45" Color="#FF000000"/>
-        </Border.Effect>
-        <StackPanel Orientation="Horizontal">
-            <Ellipse x:Name="RecDot" Width="9" Height="9" Fill="#FFE5484D" VerticalAlignment="Center"/>
-            <TextBlock x:Name="TimeText" Text="0:00" Foreground="#FFE8EAEE" FontSize="13"
-                       FontFamily="Consolas" VerticalAlignment="Center" Margin="9,0,10,0" MinWidth="38"/>
-            <Button x:Name="PauseBtn" Style="{StaticResource HudBtn}" Content="⏸" ToolTip="Pause"
-                    Click="Pause_Click"/>
-            <Button Style="{StaticResource HudBtn}" Content="⏹" ToolTip="Stop and save"
-                    Foreground="#FFE5484D" FontSize="14" Click="Stop_Click" Margin="2,0,0,0"/>
+        <StackPanel>
+            <StackPanel Orientation="Horizontal">
+                <Ellipse x:Name="RecDot" Width="8" Height="8" Fill="#FFE5484D" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center" Margin="9,0,16,0" MinWidth="70">
+                    <TextBlock x:Name="StateText" Text="Recording" Foreground="#FFAEB4BF" FontSize="11"/>
+                    <TextBlock x:Name="TimeText" Text="0:00" Foreground="#FFE8EAEE" FontSize="15"
+                               FontFamily="Consolas"/>
+                </StackPanel>
+                <Button x:Name="PauseBtn" Style="{StaticResource HudBtn}" ToolTip="Pause or resume (Ctrl+Shift+F10)"
+                        AutomationProperties.Name="Pause recording" Click="Pause_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Path x:Name="PauseIcon" Data="{StaticResource Ico.Pause}" Width="14" Height="14" Stretch="Uniform"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Margin="0,0,7,0"/>
+                        <TextBlock x:Name="PauseText" Text="Pause" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="StopBtn" Style="{StaticResource HudBtn}" ToolTip="Stop and save (Ctrl+Shift+F12)"
+                        AutomationProperties.Name="Stop and save recording" Foreground="#FFFF777D" Click="Stop_Click" Margin="7,0,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Rectangle Width="10" Height="10" RadiusX="1" RadiusY="1" Fill="#FFFF777D" Margin="0,0,7,0"/>
+                        <TextBlock Text="Stop" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+            <TextBlock Text="Ctrl+Shift+F10 pause   ·   Ctrl+Shift+F12 stop" Foreground="#FF9AA0A8"
+                       FontSize="10.5" Margin="0,8,0,0"/>
         </StackPanel>
     </Border>
 </Window>

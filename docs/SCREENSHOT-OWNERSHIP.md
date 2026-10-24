@@ -125,3 +125,6 @@ new process at 15:35:06 and 15:35:08. These logs do not identify the foreground
 app; explicit administrator-terminal acceptance and drag/drop behavior have not
 been confirmed by the owner. The local installation is verified; no GitHub
 release was published for this change.
+
+The owner subsequently confirmed that the elevated screenshot shortcut fix
+works well, then requested separate recording-control and selector improvements.

@@ -48,6 +48,8 @@
                 Background="#F21B1E23" CornerRadius="9" Padding="5"
                 BorderBrush="#33FFFFFF" BorderThickness="1">
             <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="PurposeText" Text="Screenshot" Foreground="#FF9AA0A8" FontSize="12"
+                           VerticalAlignment="Center" Margin="8,0,10,0"/>
                 <RadioButton x:Name="ModeRegionBtn" Style="{StaticResource ModeBtn}" Content="Region"
                              IsChecked="True" Checked="Mode_Checked"/>
                 <RadioButton x:Name="ModeWindowBtn" Style="{StaticResource ModeBtn}" Content="Window"

@@ -19,38 +19,72 @@ public sealed class RecordingManager
     private RecordingHud? _hud;
     private bool _stopping;
     private TaskCompletionSource? _stopCompletion;
+    private SnipOverlay? _prepared;
+    private readonly Func<PerformanceTrace, Task<(System.Windows.Media.Imaging.BitmapSource, Int32Rect)>> _capture;
+    private readonly Func<SnipOverlay, bool> _select;
+
+    public RecordingManager() : this(trace => CaptureWorker.CaptureAsync(trace), overlay => overlay.ShowScreenshotSelection()) { }
+    internal RecordingManager(Func<PerformanceTrace, Task<(System.Windows.Media.Imaging.BitmapSource, Int32Rect)>> capture,
+        Func<SnipOverlay, bool> select) { _capture = capture; _select = select; }
 
     public bool IsRecording => _recorder is not null;
+    public bool IsPaused => _recorder?.IsPaused == true;
+    public event Action? StateChanged;
 
     public Action<string>? OnError;
     public Action<string>? OnInfo;
 
     public void Toggle() => Toggle(new PerformanceTrace("record-menu"));
 
-    public void Toggle(PerformanceTrace trace)
+    public void Toggle(PerformanceTrace trace) => _ = ToggleAsync(trace);
+
+    public async Task ToggleAsync(PerformanceTrace trace)
     {
         if (_recorder is not null)
         {
             trace.Finish("stop-requested");
-            _ = StopAsync();
+            await StopAsync();
             return;
         }
-        StartNew(trace);
+        await StartNewAsync(trace);
     }
 
-    private void StartNew(PerformanceTrace trace)
+    public void PrepareOverlay()
     {
-        if (_selecting || SnipOverlay.IsOpen) { trace.Finish("already-open"); return; }
-        _selecting = true;
+        if (_selecting || SnipOverlay.IsOpen || _prepared is { IsClosed: false }) return;
         try
         {
-            // Live overlay — no frozen screenshot, the desktop keeps moving.
-            var bounds = ScreenCapture.VirtualScreenBounds();
-            var overlay = new SnipOverlay(bounds);
-            trace.TrackWindow(overlay);
-            bool? ok = overlay.ShowDialog();
+            _prepared = SnipOverlay.PrepareScreenshot();
+            _prepared.SetRecordingSelection();
+        }
+        catch (Exception ex) { Util.LogCrash("Prepare recording selector", ex); }
+    }
 
-            if (ok != true || overlay.SelectionPx is not { Width: > 0, Height: > 0 } sel)
+    private async Task StartNewAsync(PerformanceTrace trace)
+    {
+        if (_selecting || SnipOverlay.IsOpen) { trace.Finish("already-open"); return; }
+        using var reservation = SnipOverlay.TryReserveCapture();
+        if (reservation is null) { trace.Finish("already-open"); return; }
+        _selecting = true;
+        SnipOverlay? overlay = null;
+        try
+        {
+            // An opaque frozen preview avoids a layered, virtual-desktop-sized
+            // transparency upload on every pointer move while a game is rendering.
+            FloatingThumb.SetAllVisible(false);
+            var (screenshot, bounds) = await _capture(trace);
+            if (System.Windows.Application.Current.Dispatcher.HasShutdownStarted) return;
+            overlay = _prepared is { IsClosed: false } ? _prepared : SnipOverlay.PrepareScreenshot();
+            _prepared = overlay;
+            overlay.SetScreenshot(screenshot, bounds);
+            overlay.SetRecordingSelection();
+            trace.TrackWindow(overlay);
+            bool ok = _select(overlay);
+            var selection = overlay.SelectionPx; // ClearScreenshot releases the cached selection as well as its pixels.
+            overlay.ClearScreenshot();
+            FloatingThumb.SetAllVisible(true);
+
+            if (!ok || selection is not { Width: > 0, Height: > 0 } sel)
                 return;
 
             // Selection is relative to the captured bitmap; recording needs
@@ -77,13 +111,35 @@ public sealed class RecordingManager
                 return;
             }
             _recorder = recorder;
+            StateChanged?.Invoke();
+            recorder.CaptureModeChanged += supportsExclusion =>
+            {
+                // Clear native affinity synchronously, without waiting on WPF.
+                // UI status is posted separately so stopping cannot deadlock.
+                if (!supportsExclusion) _hud?.PrepareCompatibilityCapture();
+                var dispatcher = System.Windows.Application.Current.Dispatcher;
+                if (!dispatcher.HasShutdownStarted)
+                    dispatcher.BeginInvoke((Action)(() =>
+                    {
+                        if (_recorder != recorder) return;
+                        _hud?.SetCaptureMode(supportsExclusion);
+                        if (_hud?.ControlsMayBeRecorded == true)
+                            OnInfo?.Invoke("Capture switched to compatibility mode. The recording controls may now appear in the video.");
+                    }));
+            };
+            await recorder.CaptureReady;
+            if (_recorder != recorder || _stopping) return;
+            if (recorder.Error is not null) { await StopAsync(); return; }
 
-            _hud = new RecordingHud(region, () => recorder.Elapsed);
+            _hud = new RecordingHud(region, () => recorder.Elapsed, recorder.ExcludesControlWindows,
+                () => recorder.ExcludesControlWindows);
             _hud.StopRequested += () => _ = StopAsync();
-            _hud.PauseToggled += paused => recorder.SetPaused(paused);
+            _hud.PauseToggled += SetPaused;
+            _hud.SetPaused(recorder.IsPaused);
             _hud.Show();
-            if (_hud.PillHidden)
-                OnInfo?.Invoke($"Recording… press {Util.RecordHotkeyDisplay} to stop.");
+            OnInfo?.Invoke(_hud.ControlsMayBeRecorded
+                ? "Recording. Controls may appear in this compatibility capture. Ctrl+Shift+F12 stops; Ctrl+Shift+F10 pauses."
+                : "Recording. Ctrl+Shift+F12 stops; Ctrl+Shift+F10 pauses.");
 
             var guard = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
             guard.Tick += (_, _) =>
@@ -102,12 +158,32 @@ public sealed class RecordingManager
             };
             guard.Start();
         }
+        catch (Exception ex)
+        {
+            Util.LogCrash("Recording selection/start", ex);
+            if (_recorder is not null) await StopAsync();
+            OnError?.Invoke($"Could not start recording: {ex.Message}");
+        }
         finally
         {
+            overlay?.ClearScreenshot();
+            FloatingThumb.SetAllVisible(true);
             trace.Finish("finished-before-render");
             _selecting = false;
         }
     }
+
+    public void TogglePause() => SetPaused(!IsPaused);
+
+    private void SetPaused(bool paused)
+    {
+        if (_recorder is null || _stopping) return;
+        _recorder.SetPaused(paused);
+        _hud?.SetPaused(paused);
+        StateChanged?.Invoke();
+    }
+
+    public void ShowControls() => _hud?.Reveal();
 
     public async Task StopAsync()
     {
@@ -156,6 +232,7 @@ public sealed class RecordingManager
         {
             _recorder = null;
             _stopping = false;
+            StateChanged?.Invoke();
             completion.TrySetResult();
         }
     }

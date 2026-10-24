@@ -7,9 +7,10 @@ front half; each component owns one stage.
                  ┌─► SnipManager ────► SnipOverlay ─► FloatingThumb ─► EditorWindow
                  │    (screenshot)      (pick region/    (pinned         (annotate)
 KeyboardHook ────┤                       window/screen)   thumb)
- (two hotkeys)   │
+ (capture +      │
+ record controls)│
                  └─► RecordingManager ► SnipOverlay ─► ScreenRecorder ─► FloatingThumb ─► TrimWindow
-                      (recording)       (live mode)     (capture+encode    (video thumb)   (filmstrip trim)
+                      (recording)       (frozen pick)   (capture+encode    (video thumb)   (filmstrip trim)
                                                          + RecordingHud)
 ```
 
@@ -25,7 +26,7 @@ KeyboardHook ────┤                       window/screen)   thumb)
 | `SnippingTool.cs` | The one thing WinSnipper writes outside its own folder: `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingTool`, so Windows 11's other route into its built-in tool is closed while ours is open. The previous value goes into settings.json first, and unticking the setting restores it. |
 | `PerformanceTrace.cs` | Input-to-first-render stages for capture overlays and editors. Carries the keyboard event timestamp through dispatch, records capture/construction/render times, and writes to the bounded session log on a worker. See [performance evidence](PERFORMANCE.md). |
 | `SnipManager.cs` | One snip end-to-end: hide thumbs → capture → overlay → crop → save + clipboard → spawn thumbnail. |
-| `SnipOverlay.xaml` | Fullscreen selection UI with three pick modes: drag a **region**, click a **window** (`EnumWindows` + DWM frame bounds, cloaked windows filtered), click a **screen**. Frozen-screenshot mode for snips, live transparent mode for recordings (the desktop keeps moving). All selection math in physical pixels via `GetCursorPos`, so results are pixel-exact at any DPI scale. |
+| `SnipOverlay.xaml` | Fullscreen selection UI with three pick modes: drag a **region**, click a **window** (`EnumWindows` + DWM frame bounds, cloaked windows filtered), click a **screen**. Screenshots and recordings use cached opaque selectors over frozen pixels. Pointer updates coalesce to one compositor frame. The recording begins live after selection. Physical-pixel coordinates remain independent of display scaling. The old transparent constructor is retained but is not the recording entry path. |
 | `FloatingThumb.xaml` | Pinned thumbnail, bottom-right **of the monitor the capture came from**. Click = open editor (and self-dismiss), drag = `DoDragDrop` FileDrop, auto-fades after the configured timeout, hover pauses. Position is applied with `SetWindowPos` in physical pixels via `Monitors`, and stacking compares physical tops — `Window.Left/Top` converts DIPs using the *source* monitor's DPI and lands wrong across mixed-scaling displays. |
 | `Monitors.cs` | Per-monitor work areas and DPI scale (`MonitorFromPoint` / `GetMonitorInfo` / `GetDpiForMonitor`). Exists because WPF only exposes `SystemParameters.WorkArea`, which is the primary monitor. |
 | `EditorWindow.xaml` | Frameless annotation editor. The `Surface` grid is kept at 1 DIP == 1 px, so a 96-DPI `RenderTargetBitmap` of it (`Composite()`) is a pixel-exact output. Every tool adds an element to the `Ink` canvas and the shared undo stack; crop and pixelate bake from the live composite. Anything that must *not* reach the export (image hairline, crop pill) lives outside `Surface`; crop/redact outlines inside it are divided by the zoom so they keep a constant on-screen weight. One toolbar row: colours and stroke sizes sit inline when the bar is wide enough and fold behind a colour chip + flyout when it isn't, which is what lets a small snip open in a small window. |
@@ -39,7 +40,7 @@ KeyboardHook ────┤                       window/screen)   thumb)
 | `StartupManager.cs` | HKCU `Run` key toggle. |
 | `Util.cs` | PNG save, clipboard retry wrappers (image / file / text), OCR (`Windows.Media.Ocr`, upscaled input, language fallback chain). |
 | `AutoCleanup.cs` | Opt-in: recycles `Snip *.png` / `Recording *.mp4` older than N days (save dir + `Recordings\`), via `SHFileOperation` `FOF_ALLOWUNDO` — Recycle Bin, never a hard delete. |
-| `RecordingHud.xaml` | Recording control pill (elapsed / pause / stop) + four border strips around the region. Everything is `WDA_EXCLUDEFROMCAPTURE`d and placed strictly **outside** the recorded pixels — GDI-style capture renders excluded windows as black, so nothing excluded may ever overlap the region. |
+| `RecordingHud.xaml`, `RecordingHudLayout.cs` | Recording controls with labels, elapsed/paused state and safety shortcuts. Placement and drag clamping use one real monitor's work area, never the combined desktop rectangle. Prefer outside the recording; fullscreen puts controls inside. WGC excludes the HUD. Compatibility backends clear embedded affinity so controls may be recorded rather than becoming a black box. Border strips stay outside. |
 | `TrimWindow.xaml` | Filmstrip trim editor: draggable in/out handles, playhead, time bubble, selection-bounded playback. Drags never seek per pixel — visuals are instant, the `MediaElement` preview follows on a ~90 ms throttle. Filmstrip tiles are sized to the clip's aspect (from `MediaElement.NaturalVideoWidth/Height`) and tiled to fill the timeline, rebuilt on a debounced resize. Handles sit *inside* the kept range (QuickTime-style) and a grab keeps its offset, so a handle never jumps to the cursor. Errors show inline, not in a dialog. |
 
 ## Recording pipeline (`src/Recording/`)
@@ -111,7 +112,8 @@ survive the reboot and suppress the next logon's start.
   A separate accepted flag replaces `DialogResult` for this reusable window.
   Refresh monitor bounds, mode and hover caches for every capture. `IsOpen`
   covers a visible selector or a reservation while background capture runs,
-  never an idle hidden HWND. Live recording selectors still close normally.
+  never an idle hidden HWND. Recording selectors adopt this same lifecycle as
+  of 2026-10-24; see [recording controls](RECORDING-CONTROLS.md).
   Async requests retain their pending flag and priority scope through completion.
   Capture failure restores thumbnails, releases the reservation and reports the
   error. Timing handlers detach after every show, so the cached window cannot
@@ -149,10 +151,17 @@ survive the reboot and suppress the next logon's start.
   records via Desktop Duplication instead of WGC.
 - **WinRT + STA**: never block on WinRT async from the UI thread
   (`.GetResult()` deadlocks). Await it.
-- **Excluded windows are BLACK, not invisible, to GDI-style capture**: any
-  `WDA_EXCLUDEFROMCAPTURE` window overlapping the recorded region blacks it
-  out. That's why the recording border is four strips *outside* the region
-  and the HUD hides itself when a full-screen recording leaves it no room.
+- **Recording controls must stay reachable.** Work-area placement and drag
+  clamping keep them on a real monitor, including fullscreen, mixed-DPI and
+  disjoint monitor layouts. Ctrl+Shift+F10 pauses/resumes and Ctrl+Shift+F12 stops
+  while recording; an independent bounded worker delivers these outside the
+  hook callback. The tray adds pause/resume, stop/save and control recovery.
+  Only WGC excludes an embedded HUD. Before GDI fallback, the recorder synchronously
+  clears native HUD affinity directly on its worker to avoid protected black pixels
+  and posts UI status separately. A native-affinity gate and the recorder's current
+  mode prevent stale UI updates from re-protecting the embedded bar.
+  Compatibility mode can include the controls and reports that tradeoff. Border
+  strips always remain outside the recording. See [recording controls](RECORDING-CONTROLS.md).
 - **Video timing**: the MP4 timeline comes from sample count × frame
   duration, not from the timestamps you write — the encoder MFT re-stamps
   them. CFR with duplicate-fill is the only reliable way to keep wall-clock

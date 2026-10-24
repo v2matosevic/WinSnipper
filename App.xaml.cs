@@ -85,16 +85,24 @@ public partial class App : Application
             onNewRecording: () => RecordFromMenu(),
             onHistory: ShowHistory,
             onSettings: ShowSettings,
-            onExit: QuitFromTray);
+            onExit: QuitFromTray,
+            onPauseRecording: () => _recordings.TogglePause(),
+            onShowRecordingControls: () => _recordings.ShowControls());
         _recordings.OnError = msg => _tray?.ShowError(msg);
         _recordings.OnInfo = msg => _tray?.ShowInfo(msg);
+        _recordings.StateChanged += () =>
+        {
+            KeyboardHook.RecordingActive = _recordings.IsRecording;
+            _tray?.UpdateRecordingState(_recordings.IsRecording, _recordings.IsPaused);
+        };
 
         try
         {
             _hook = new KeyboardHook();
             _hook.HotkeyPressed += (timestamp, receipt) => QueueCapture("snip", timestamp, _snips.StartSnipAsync, receipt);
-            _hook.RecordHotkeyPressed += (timestamp, receipt) => QueueCapture("record", timestamp,
-                trace => { _recordings.Toggle(trace); return Task.CompletedTask; }, receipt);
+            _hook.RecordHotkeyPressed += (timestamp, receipt) => QueueCapture("record", timestamp, _recordings.ToggleAsync, receipt);
+            _hook.PauseHotkeyPressed += () => Dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() => _recordings.TogglePause()));
+            _hook.StopHotkeyPressed += () => Dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() => _ = _recordings.StopAsync()));
             StartHookWatchdog();
         }
         catch (Exception ex)
@@ -112,6 +120,7 @@ public partial class App : Application
         {
             await Warmup.RunAsync();
             _snips.PrepareOverlay();
+            _recordings.PrepareOverlay();
         }));
 
         _ = CheckForUpdatesLoop();

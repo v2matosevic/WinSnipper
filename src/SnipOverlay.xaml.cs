@@ -32,6 +32,8 @@ public partial class SnipOverlay : Window
     private static bool _captureReserved;
     private Point _startPx;
     private Point _curPx;
+    private bool _visualsQueued;
+    private bool _recordingSelection;
 
     // The dim is one reused geometry: even-odd over [whole overlay, selection]
     // paints exactly what a boolean Exclude painted, without asking WPF to
@@ -39,6 +41,7 @@ public partial class SnipOverlay : Window
     // across a 5760-pixel-wide overlay.
     private readonly RectangleGeometry _dimOuter = new();
     private readonly RectangleGeometry _dimHole = new();
+    private Rect? _dimSelection;
 
     // Hover target for Window/Screen modes, in physical screen px.
     private Int32Rect? _hover;
@@ -91,13 +94,18 @@ public partial class SnipOverlay : Window
         Closed += (_, _) =>
         {
             IsClosed = true;
+            CancelPendingVisuals();
             if (ReferenceEquals(_visibleOverlay, this)) _visibleOverlay = null;
             ScreenImage.Source = null;
         };
         IsVisibleChanged += (_, _) =>
         {
             if (IsVisible) _visibleOverlay = this;
-            else if (ReferenceEquals(_visibleOverlay, this)) _visibleOverlay = null;
+            else
+            {
+                CancelPendingVisuals();
+                if (ReferenceEquals(_visibleOverlay, this)) _visibleOverlay = null;
+            }
         };
         Closing += (_, e) =>
         {
@@ -113,6 +121,7 @@ public partial class SnipOverlay : Window
         dim.Children.Add(_dimOuter);
         dim.Children.Add(_dimHole);
         DimPath.Data = dim;
+        RootGrid.SizeChanged += (_, _) => UpdateDim(_dimSelection);
         _vs = virtualScreenPx;
         _live = live;
         if (live)
@@ -127,7 +136,9 @@ public partial class SnipOverlay : Window
         {
             if (ShowActivated) { Activate(); Focus(); }
             UpdateDim(null);
+            PositionModeBar();
         };
+        PositionModeBar();
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -154,6 +165,7 @@ public partial class SnipOverlay : Window
 
     internal void SetScreenshot(BitmapSource screenshot, Int32Rect bounds)
     {
+        CancelPendingVisuals();
         _done = _accepted = _dragging = false;
         SelectionPx = _hover = null;
         _windows = _screens = null;
@@ -167,6 +179,26 @@ public partial class SnipOverlay : Window
         if (hwnd != IntPtr.Zero)
             MoveWindow(hwnd, bounds.X, bounds.Y, bounds.Width, bounds.Height, false);
         UpdateDim(null);
+        PositionModeBar();
+    }
+
+    internal void SetRecordingSelection()
+    {
+        _recordingSelection = true;
+        PurposeText.Text = "Record";
+        PurposeText.Foreground = Brushes.IndianRed;
+        UpdateHint();
+        PositionModeBar();
+    }
+
+    private void PositionModeBar()
+    {
+        var monitor = Monitors.FromCursor();
+        double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        ModeBar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double left = (monitor.Left - _vs.X) / scale + Math.Max(8, (monitor.Width / scale - ModeBar.DesiredSize.Width) / 2);
+        ModeBar.HorizontalAlignment = HorizontalAlignment.Left;
+        ModeBar.Margin = new Thickness(left, (monitor.Top - _vs.Y) / scale + 20, 0, 0);
     }
 
     internal bool ShowScreenshotSelection()
@@ -177,6 +209,7 @@ public partial class SnipOverlay : Window
 
     internal void ClearScreenshot()
     {
+        CancelPendingVisuals();
         if (IsVisible) Hide();
         ScreenImage.Source = null;
         _windows = _screens = null;
@@ -217,17 +250,25 @@ public partial class SnipOverlay : Window
         _mode = sender == ModeWindowBtn ? PickMode.Window
               : sender == ModeScreenBtn ? PickMode.Screen
               : PickMode.Region;
-        HintText.Text = _mode switch
-        {
-            PickMode.Window => "Click a window   ·   Esc to cancel",
-            PickMode.Screen => "Click a screen   ·   Esc to cancel",
-            _ => "Drag to select   ·   Esc to cancel",
-        };
+        UpdateHint();
+        CancelPendingVisuals();
         _dragging = false;
         _hover = null;
+        SelRect.Visibility = SizeBadge.Visibility = Visibility.Collapsed;
+        UpdateDim(null);
         if (_mode == PickMode.Window) _windows ??= EnumerateWindowRects();
         if (_mode == PickMode.Screen) _screens ??= EnumerateScreenRects();
         RefreshHover();
+    }
+
+    private void UpdateHint()
+    {
+        HintText.Text = _mode switch
+        {
+            PickMode.Window => _recordingSelection ? "Click a window to record   ·   Esc cancels" : "Click a window   ·   Esc to cancel",
+            PickMode.Screen => _recordingSelection ? "Click a screen to record   ·   Esc cancels" : "Click a screen   ·   Esc to cancel",
+            _ => _recordingSelection ? "Drag an area to record   ·   Esc cancels" : "Drag to select   ·   Esc to cancel",
+        };
     }
 
     private void SetMode(PickMode mode)
@@ -260,12 +301,36 @@ public partial class SnipOverlay : Window
         {
             if (!_dragging) return;
             _curPx = CursorPx();
-            UpdateRegionVisuals();
+            QueueVisuals();
         }
         else
         {
-            RefreshHover();
+            QueueVisuals();
         }
+    }
+
+    // Mouse devices can deliver thousands of events per second. Keep the
+    // latest coordinates and draw once at the next compositor frame.
+    private void QueueVisuals()
+    {
+        if (_visualsQueued) return;
+        _visualsQueued = true;
+        CompositionTarget.Rendering += RenderPendingVisuals;
+    }
+
+    private void CancelPendingVisuals()
+    {
+        if (!_visualsQueued) return;
+        _visualsQueued = false;
+        CompositionTarget.Rendering -= RenderPendingVisuals;
+    }
+
+    private void RenderPendingVisuals(object? sender, EventArgs e)
+    {
+        CancelPendingVisuals();
+        if (_done) return;
+        if (_mode == PickMode.Region) { if (_dragging) UpdateRegionVisuals(); }
+        else RefreshHover();
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
@@ -275,6 +340,7 @@ public partial class SnipOverlay : Window
 
         if (_mode != PickMode.Region)
         {
+            RefreshHover(); // Accept the actual release position, even before the next render.
             if (_hover is { } target)
                 FinishWith(target.X - _vs.X, target.Y - _vs.Y, target.Width, target.Height);
             return;
@@ -340,6 +406,7 @@ public partial class SnipOverlay : Window
     {
         if (_done) return;
         _done = true;
+        CancelPendingVisuals();
         if (_reusable)
         {
             _accepted = ok;
@@ -367,6 +434,7 @@ public partial class SnipOverlay : Window
                 }
             }
         }
+        if (_hover == hit) return;
         _hover = hit;
         ShowHighlight(hit);
     }
@@ -406,21 +474,25 @@ public partial class SnipOverlay : Window
 
         UpdateDim(r);
 
-        SizeText.Text = $"{pxWidth} × {pxHeight}";
+        string label = $"{pxWidth} × {pxHeight}";
+        bool sizeChanged = SizeText.Text != label;
+        if (sizeChanged) SizeText.Text = label;
         SizeBadge.Visibility = Visibility.Visible;
-        SizeBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        if (sizeChanged || SizeBadge.DesiredSize.Width == 0)
+            SizeBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double bw = SizeBadge.DesiredSize.Width;
         double bh = SizeBadge.DesiredSize.Height;
-        double bx = Math.Clamp(r.Right - bw, 4, Math.Max(4, ActualWidth - bw - 4));
+        double bx = Math.Clamp(r.Right - bw, 4, Math.Max(4, RootGrid.ActualWidth - bw - 4));
         double by = r.Bottom + 8;
-        if (by + bh > ActualHeight - 4) by = r.Bottom - bh - 8;
+        if (by + bh > RootGrid.ActualHeight - 4) by = r.Bottom - bh - 8;
         System.Windows.Controls.Canvas.SetLeft(SizeBadge, bx);
         System.Windows.Controls.Canvas.SetTop(SizeBadge, by);
     }
 
     private void UpdateDim(Rect? selection)
     {
-        var full = new Rect(0, 0, ActualWidth, ActualHeight);
+        _dimSelection = selection;
+        var full = new Rect(0, 0, RootGrid.ActualWidth, RootGrid.ActualHeight);
         if (_dimOuter.Rect != full) _dimOuter.Rect = full; // only the hole moves during a drag
         if (selection is not { } r)
         {

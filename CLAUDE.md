@@ -19,6 +19,7 @@ test, harnesses).
 | Running? Which build? Native screenshot conflict? | `pwsh -File tools\winsnipper.ps1 status` |
 | Administrator-window hotkeys (opt-in, admin shell, restarts app) | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\winsnipper.ps1 setup -Elevated -Rebuild` |
 | Supervision regression checks (isolated) | `pwsh -NoProfile -File tools\test-supervision.ps1` |
+| Recording HUD, selector and safety shortcuts | `pwsh -NoProfile -File tools\test-recording-controls.ps1` |
 | Smoke test (exit 0 = pass) | `<exe> --selftest` |
 | Render editor/trim UI to PNGs | `pwsh -NoProfile -File tools\ui-shots.ps1` (`-Readme` refreshes `docs\images`) |
 | Capture benchmark | `pwsh -NoProfile -File tools\measure-capture.ps1` |
@@ -51,8 +52,11 @@ integration from the WinSnipper version alone.
   key, say) crashes startup. Run `--selftest` after touching it.
 - Icons are stroke geometries in `Theme.xaml`, never symbol-font glyphs; those
   rendered at mismatched sizes and depend on the fonts an install has.
-- Windows excluded from capture render black to GDI-style capture. HUD and
-  border windows must never overlap the recorded region.
+- Windows excluded from capture render black to GDI-style capture. Border
+  strips stay outside the region. The recording HUD must stay on a real monitor:
+  outside the recording when possible, inside for fullscreen. Only WGC may
+  exclude an embedded HUD. Clear affinity synchronously before a GDI fallback;
+  compatibility mode may include controls in the video, never hide them offscreen.
 - The keyboard hook runs on its own thread, never the UI thread. Windows
   delivers LL hook callbacks on the installing thread; behind a busy UI thread
   the callback exceeds `LowLevelHooksTimeout` and Windows hands the keystroke
@@ -60,9 +64,11 @@ integration from the WinSnipper version alone.
 - A capture's pixels live in an unmanaged section WPF reads in place. Never
   return an unfrozen capture, and never let the section handle and its bitmap
   come apart — `ConditionalWeakTable` is what ties them.
-- `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingTool` is the only
-  thing the app writes outside its own folder. Record the old value before
-  changing it; the settings checkbox and `winsnipper.ps1 uninstall` restore it.
+- Screenshot takeover may write only
+  `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingTool`. Record its old
+  value before changing it; the checkbox and `winsnipper.ps1 uninstall` restore
+  it. Startup separately owns the WinSnipper Run value and, for an opted-in
+  elevated installation, its existing keep-alive task's enabled state.
 - Interop: vtable placeholders are named `ReservedN`, never `_VtblGap*` (the
   runtime reads that prefix as a gap directive). Verify GUIDs against the
   Windows SDK headers.
@@ -71,7 +77,8 @@ integration from the WinSnipper version alone.
   The reusable screenshot selector finishes with `Hide`, never `DialogResult`
   (which destroys its HWND). Clear its screenshot and refresh selection/monitor
   state between shows. `IsOpen` includes the pending capture reservation, not
-  the idle hidden HWND. Live recording selection still uses `DialogResult`.
+  the idle hidden HWND. Recording uses the same opaque cached-selector lifecycle,
+  with frozen pixels only while selecting. Coalesce pointer drawing to one frame.
 
 ## Release
 

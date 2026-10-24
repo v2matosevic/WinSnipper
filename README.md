@@ -165,12 +165,18 @@ and clipboard use work independently. [Requirements and recovery](docs/ADE-INTEG
 
 ## Screen recording
 
-1. Press **Win+Shift+D** (rebindable) — a live overlay opens with three pick
+The control changes below are in current source and locally verified; see
+[verification and installation state](docs/RECORDING-CONTROLS.md).
+
+1. Press **Win+Shift+D** (rebindable) — a frozen preview opens with three pick
    modes: **Region** (drag), **Window** (click one), **Screen** (click a
    monitor). Keys `R`/`W`/`S` or `1`/`2`/`3` switch modes; Esc cancels.
 2. Recording starts immediately: a red border marks the region and a small
-   HUD pill shows elapsed time with **pause** and **stop**. Neither appears
-   in the video. Press the hotkey again (or the HUD stop) to finish.
+   control bar shows elapsed time with **pause/resume** and **stop**. The bar
+   stays on a real monitor, including fullscreen. WGC excludes it from video;
+   compatibility capture may include it and tells you when it does.
+   **Ctrl+Shift+F10** pauses/resumes; **Ctrl+Shift+F12** stops and saves.
+   The tray also provides these controls and **Show recording controls**.
 3. The MP4 is saved to `<snips folder>\Recordings\`, lands on the clipboard
    as a pasteable **file**, and a floating thumbnail appears — click it to
    open the **trim editor**.

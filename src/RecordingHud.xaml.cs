@@ -3,7 +3,6 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 namespace WinSnipper;
@@ -11,10 +10,9 @@ namespace WinSnipper;
 /// <summary>
 /// Small always-on-top control pill shown while recording (elapsed time,
 /// pause, stop), plus four thin border strips around the recorded region.
-/// Everything is excluded from capture — and, because GDI capture renders
-/// excluded windows as BLACK, nothing here may ever overlap the recorded
-/// pixels: the strips sit outside the region, and if the pill can't fit
-/// outside it stays hidden (the hotkey still stops the recording).
+/// Controls stay on a real monitor even for fullscreen recordings. WGC can
+/// exclude the embedded controls; compatibility capture leaves them visible
+/// rather than drawing a protected black rectangle over the recorded game.
 /// </summary>
 public partial class RecordingHud : Window
 {
@@ -26,35 +24,38 @@ public partial class RecordingHud : Window
     public event Action? StopRequested;
     public event Action<bool>? PauseToggled; // true = now paused
 
-    /// <summary>True when there was no room for the pill outside the recorded
-    /// region — the caller should tell the user the hotkey stops the recording.</summary>
-    public bool PillHidden { get; private set; }
-
+    public bool ControlsMayBeRecorded { get; private set; }
     private bool _paused;
+    private bool _captureExcludesWindows;
+    private bool _userMoved;
+    private readonly object _affinityGate = new();
+    private IntPtr _nativeHandle;
+    private readonly Func<bool>? _captureExclusionSupported;
 
-    public RecordingHud(Int32Rect regionPx, Func<TimeSpan> elapsed)
+    public RecordingHud(Int32Rect regionPx, Func<TimeSpan> elapsed, bool captureExcludesWindows = false,
+        Func<bool>? captureExclusionSupported = null)
     {
         InitializeComponent();
         _region = regionPx;
         _elapsed = elapsed;
+        _captureExcludesWindows = captureExcludesWindows;
+        _captureExclusionSupported = captureExclusionSupported;
 
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _timer.Tick += (_, _) =>
         {
             var t = _elapsed();
-            TimeText.Text = t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
+            string text = t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss");
+            if (TimeText.Text != text) TimeText.Text = text;
         };
         _timer.Start();
 
-        var blink = new DoubleAnimation(1, 0.25, TimeSpan.FromMilliseconds(700))
-        {
-            AutoReverse = true,
-            RepeatBehavior = RepeatBehavior.Forever,
-        };
-        RecDot.BeginAnimation(OpacityProperty, blink);
+        Loaded += (_, _) => PositionControls();
+        DpiChanged += (_, _) => Dispatcher.BeginInvoke((Action)PositionControls);
 
         Closed += (_, _) =>
         {
+            lock (_affinityGate) _nativeHandle = IntPtr.Zero;
             _timer.Stop();
             foreach (var s in _strips) s.Close();
         };
@@ -64,47 +65,102 @@ public partial class RecordingHud : Window
     {
         base.OnSourceInitialized(e);
         var hwnd = new WindowInteropHelper(this).Handle;
-        ExcludeFromCapture(hwnd);
+        lock (_affinityGate) _nativeHandle = hwnd;
+        const int GWL_EXSTYLE = -20;
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, GetWindowLongPtr(hwnd, GWL_EXSTYLE) | 0x08000000 /* NOACTIVATE */ | 0x80 /* TOOLWINDOW */);
+        HwndSource.FromHwnd(hwnd)?.AddHook(WindowMessage);
         ShowBorderStrips();
-        PositionOutsideRegion(hwnd);
+        PositionControls();
     }
 
-    private void PositionOutsideRegion(IntPtr hwnd)
+    public void SetCaptureMode(bool excludesWindows)
     {
-        // Measure the pill in DIPs, convert to px for MoveWindow.
-        Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        double scale = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        int w = (int)Math.Ceiling(DesiredSize.Width * scale);
-        int h = (int)Math.Ceiling(DesiredSize.Height * scale);
+        lock (_affinityGate) _captureExcludesWindows = excludesWindows;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero && GetWindowRect(hwnd, out var rect))
+            ApplyAffinity(new Int32Rect(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top));
+    }
 
-        var vs = ScreenCapture.VirtualScreenBounds();
-        int x = Math.Clamp(_region.X + _region.Width - w, vs.X + 8, vs.X + vs.Width - w - 8);
-
-        int y;
-        if (_region.Y + _region.Height + 10 + h <= vs.Y + vs.Height - 8)
-            y = _region.Y + _region.Height + 10;              // below the region
-        else if (_region.Y - h - 10 >= vs.Y + 8)
-            y = _region.Y - h - 10;                           // above it
-        else if (_region.X - w - 10 >= vs.X + 8)
-        {                                                     // left of it
-            x = _region.X - w - 10;
-            y = Math.Clamp(_region.Y + _region.Height - h, vs.Y + 8, vs.Y + vs.Height - h - 8);
-        }
-        else if (_region.X + _region.Width + 10 + w <= vs.X + vs.Width - 8)
-        {                                                     // right of it
-            x = _region.X + _region.Width + 10;
-            y = Math.Clamp(_region.Y + _region.Height - h, vs.Y + 8, vs.Y + vs.Height - h - 8);
-        }
-        else
+    /// <summary>Native-only: called on the recorder thread before fallback pixels.
+    /// Never wait for WPF here; StopAsync may already be waiting for the encoder.</summary>
+    public void PrepareCompatibilityCapture()
+    {
+        lock (_affinityGate)
         {
-            // Region fills the whole virtual screen — an excluded pill would
-            // record as a black box, so keep it off screen entirely.
-            PillHidden = true;
-            MoveWindow(hwnd, vs.X - w - 100, vs.Y, w, h, false);
-            return;
+            _captureExcludesWindows = false;
+            if (_nativeHandle != IntPtr.Zero) SetWindowDisplayAffinity(_nativeHandle, 0);
         }
+    }
 
-        MoveWindow(hwnd, x, y, w, h, true);
+    public void Reveal()
+    {
+        _userMoved = false;
+        PositionControls();
+        Topmost = false;
+        Topmost = true;
+    }
+
+    private void PositionControls()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var monitor = Monitors.FromRect(_region.X, _region.Y, _region.Width, _region.Height);
+        var work = new Int32Rect(monitor.Left, monitor.Top, monitor.Width, monitor.Height);
+        int w = (int)Math.Ceiling(DesiredSize.Width * monitor.Scale);
+        int h = (int)Math.Ceiling(DesiredSize.Height * monitor.Scale);
+        Int32Rect bounds;
+        if (_userMoved && GetWindowRect(hwnd, out var old))
+        {
+            monitor = Monitors.FromRect(old.Left, old.Top, old.Right - old.Left, old.Bottom - old.Top);
+            work = new Int32Rect(monitor.Left, monitor.Top, monitor.Width, monitor.Height);
+            w = (int)Math.Ceiling(DesiredSize.Width * monitor.Scale);
+            h = (int)Math.Ceiling(DesiredSize.Height * monitor.Scale);
+            bounds = RecordingHudLayout.Clamp(new Int32Rect(old.Left, old.Top, w, h), work);
+        }
+        else bounds = RecordingHudLayout.Place(_region, work, w, h);
+        ApplyAffinity(bounds);
+        MoveWindow(hwnd, bounds.X, bounds.Y, bounds.Width, bounds.Height, true);
+    }
+
+    private void ApplyAffinity(Int32Rect bounds)
+    {
+        lock (_affinityGate)
+        {
+            bool inside = RecordingHudLayout.Intersects(bounds, _region);
+            // Read the recorder's current mode while holding the same gate as its
+            // native fallback clear. A queued/stale UI update cannot re-protect
+            // an embedded bar after the worker has already switched to GDI.
+            bool exclude = !inside || (_captureExcludesWindows && (_captureExclusionSupported?.Invoke() ?? true));
+            var hwnd = _nativeHandle;
+            bool applied = SetWindowDisplayAffinity(hwnd, exclude ? 0x11u : 0u);
+            if (!applied && exclude) SetWindowDisplayAffinity(hwnd, 0);
+            ControlsMayBeRecorded = inside && (!exclude || !applied);
+        }
+    }
+
+    private IntPtr WindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (message == 0x0021 /* WM_MOUSEACTIVATE */)
+        {
+            handled = true;
+            return (IntPtr)3; // MA_NOACTIVATE: buttons must not take focus away from a fullscreen game.
+        }
+        if (message == 0x0216 /* WM_MOVING */)
+        {
+            var r = Marshal.PtrToStructure<RECT>(lParam);
+            var monitor = Monitors.FromRect(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+            var bounds = RecordingHudLayout.Clamp(new Int32Rect(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top),
+                new Int32Rect(monitor.Left, monitor.Top, monitor.Width, monitor.Height));
+            _userMoved = true;
+            ApplyAffinity(bounds);
+            Marshal.StructureToPtr(new RECT { Left = bounds.X, Top = bounds.Y, Right = bounds.X + bounds.Width, Bottom = bounds.Y + bounds.Height }, lParam, false);
+            handled = true;
+            return (IntPtr)1;
+        }
+        if (message == 0x007E /* WM_DISPLAYCHANGE */)
+            Dispatcher.BeginInvoke((Action)PositionControls);
+        return IntPtr.Zero;
     }
 
     /// <summary>Four thin strips just OUTSIDE the recorded pixels.</summary>
@@ -149,20 +205,28 @@ public partial class RecordingHud : Window
 
     private void Pause_Click(object sender, RoutedEventArgs e)
     {
-        _paused = !_paused;
-        PauseBtn.Content = _paused ? "▶" : "⏸";
-        PauseBtn.ToolTip = _paused ? "Resume" : "Pause";
+        PauseToggled?.Invoke(!_paused);
+    }
+
+    public void SetPaused(bool paused)
+    {
+        _paused = paused;
+        PauseText.Text = paused ? "Resume" : "Pause";
+        PauseIcon.Data = (Geometry)FindResource(paused ? "Ico.Play" : "Ico.Pause");
+        StateText.Text = paused ? "Paused" : "Recording";
+        RecDot.Opacity = paused ? 0.35 : 1;
+        System.Windows.Automation.AutomationProperties.SetName(PauseBtn, paused ? "Resume recording" : "Pause recording");
         foreach (var s in _strips)
             s.Opacity = _paused ? 0.35 : 1.0;
-        PauseToggled?.Invoke(_paused);
     }
 
     private void Stop_Click(object sender, RoutedEventArgs e) => StopRequested?.Invoke();
 
     private void Bar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.OriginalSource is not System.Windows.Controls.Button)
-            try { DragMove(); } catch { }
+        for (var source = e.OriginalSource as DependencyObject; source is not null; source = VisualTreeHelper.GetParent(source))
+            if (source is System.Windows.Controls.Primitives.ButtonBase) return;
+        try { DragMove(); } catch { }
     }
 
     /// <summary>WDA_EXCLUDEFROMCAPTURE (Win10 2004+).</summary>
@@ -173,6 +237,12 @@ public partial class RecordingHud : Window
 
     [DllImport("user32.dll")]
     private static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     private static extern long GetWindowLongPtr(IntPtr hwnd, int index);

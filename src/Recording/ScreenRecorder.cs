@@ -32,6 +32,11 @@ public sealed class ScreenRecorder
     private long _pauseStartedTicks100;
     private readonly TaskCompletionSource<BitmapSource?> _finished =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<bool> _captureReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal Task<bool> CaptureReady => _captureReady.Task;
+    internal event Action<bool>? CaptureModeChanged;
+    private volatile bool _excludesControlWindows;
+    internal bool ExcludesControlWindows => _excludesControlWindows;
 
     public string FilePath => _path;
     public Exception? Error { get; private set; }
@@ -60,7 +65,6 @@ public sealed class ScreenRecorder
 
     public void Start()
     {
-        Mf.EnsureStartup();
         // The clock starts at the first capture (inside the loop), not here —
         // encoder init takes a beat and the HUD timer must match the video.
         _thread = new Thread(CaptureLoop) { IsBackground = true, Name = "WinSnipper.Recorder" };
@@ -77,8 +81,8 @@ public sealed class ScreenRecorder
         }
         else
         {
-            _paused = false;
             Interlocked.Add(ref _pausedTicks100, _clock.Elapsed.Ticks - Interlocked.Read(ref _pauseStartedTicks100));
+            _paused = false; // publish active state only after removing paused time
         }
     }
 
@@ -117,6 +121,7 @@ public sealed class ScreenRecorder
         timeBeginPeriod(1); // default 15.6 ms sleep granularity would cap us near 20 fps
         try
         {
+            Mf.EnsureStartup(); // native initialization belongs on the recording worker
             Diag($"start region={_region.X},{_region.Y} {w}x{h} fps={_fps}");
             var initClock = Stopwatch.StartNew();
             writer = CreateWriter(_path, w, h, _fps, 1, null, out int stream);
@@ -138,6 +143,13 @@ public sealed class ScreenRecorder
                 cg.CopyFromScreen(_region.X, _region.Y, 0, 0,
                     new System.Drawing.Size(w, h), CopyPixelOperation.SourceCopy);
             }
+
+#if WINRT
+            _excludesControlWindows = cap is WgcCapture;
+#else
+            _excludesControlWindows = false;
+#endif
+            _captureReady.TrySetResult(_excludesControlWindows);
 
             _clock.Start();
             while (!_stop)
@@ -163,6 +175,10 @@ public sealed class ScreenRecorder
                     catch (Exception ex)
                     {
                         Diag($"capture backend lost, switching to GDI: {ex.Message}");
+                        // The HUD must clear capture affinity BEFORE the first
+                        // compatibility frame, otherwise it can become a black box.
+                        _excludesControlWindows = false;
+                        CaptureModeChanged?.Invoke(false);
                         cap.Dispose();
                         cap = null;
                         CaptureFrame(g, bmp);
@@ -207,6 +223,7 @@ public sealed class ScreenRecorder
         }
         finally
         {
+            _captureReady.TrySetResult(false); // startup failures must not strand the UI awaiting readiness
             timeEndPeriod(1);
             cap?.Dispose();
             clean?.Dispose();
