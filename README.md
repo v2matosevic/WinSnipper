@@ -229,9 +229,9 @@ nothing else answers in microseconds however busy the app is.
 
 Windows 11 has a second door into the same tool: bare **PrintScreen**. That one
 is a Windows setting rather than a hotkey, so *Replace the Windows Snipping
-Tool* (on by default) turns it off and captures on PrintScreen instead. It is
-the one thing WinSnipper writes outside its own folder — a single
-`HKCU\Control Panel\Keyboard` value, whose previous state is recorded first.
+Tool* (on by default) turns it off and captures on PrintScreen instead. Screenshot
+takeover changes a single `HKCU\Control Panel\Keyboard` value, whose previous
+state is recorded first. Startup separately manages WinSnipper's own startup entry.
 Unticking the setting, or `tools\winsnipper.ps1 uninstall`, puts it back
 exactly as it was. Win+Shift+S needs no registry change at all.
 
