@@ -1,5 +1,8 @@
 # WinSnipper 0.9.1
 
+This is the historical October 13 release record. The [current local handoff](HANDOFF-2026-10-24.md)
+records the subsequently installed 0.9.2 build and its pending public release.
+
 Installed locally and [published as GitHub's latest stable release](https://github.com/v2matosevic/WinSnipper/releases/tag/v0.9.1)
 on October 13, 2026, following the owner's authorization. The preceding local
 installation used version 0.9.0 with the same responsiveness changes; 0.9.1

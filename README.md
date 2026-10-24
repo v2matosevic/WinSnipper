@@ -22,6 +22,9 @@ flavor so the lightweight build stays lightweight.
 
 ## Install
 
+The October 24 local installation is 0.9.2 with Windows capture default integration.
+The public download below remains 0.9.1. See the [delivery handoff and open checks](docs/HANDOFF-2026-10-24.md).
+
 Grab a build from [Releases](../../releases) and run it — it lives in the tray.
 Two flavors:
 

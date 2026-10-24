@@ -27,7 +27,10 @@ test, harnesses).
 | Capture benchmark | `pwsh -NoProfile -File tools\measure-capture.ps1` |
 | Failure regression checks | `pwsh -NoProfile -File tools\test-reliability.ps1` |
 
-Latest stable delivery and exact verification: [docs/RELEASE-0.9.1.md](docs/RELEASE-0.9.1.md).
+Current installed state, final evidence and remaining acceptance/release work:
+[docs/HANDOFF-2026-10-24.md](docs/HANDOFF-2026-10-24.md). Do not infer public
+release availability from the assembly/source version.
+Historical public 0.9.1 verification: [docs/RELEASE-0.9.1.md](docs/RELEASE-0.9.1.md).
 Screenshot shortcut ownership and native app removal boundaries:
 [docs/SCREENSHOT-OWNERSHIP.md](docs/SCREENSHOT-OWNERSHIP.md).
 Windows capture default candidate, security boundary and owner selection:

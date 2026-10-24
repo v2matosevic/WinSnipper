@@ -1,7 +1,8 @@
 ﻿# Architecture
 
-One WPF process, one project, no external packages. Two flows share the same
-front half; each component owns one stage.
+One resident WPF process, one project, no external packages. Short-lived activation
+clients hand off Windows capture requests. Two flows share the same front half;
+each component owns one stage.
 
 ```
                  ┌─► SnipManager ────► SnipOverlay ─► FloatingThumb ─► EditorWindow
@@ -16,6 +17,9 @@ KeyboardHook ────┤                       window/screen)   thumb)
 
 ## Components (`src/`)
 
+Windows default capture links enter the same manager queues through
+`CaptureActivation`; a closed app is started through the verified supervisor.
+
 | File | Responsibility |
 |---|---|
 | `KeyboardHook.cs` | `WH_KEYBOARD_LL` hook **on its own dedicated thread with its own message pump** — Windows delivers the callback on the installing thread, so this must never be the UI thread (see decisions). Sees the configured combos (snip + record) before the OS hotkey, swallows them, sends a dummy key so the Start menu doesn't open on Win-up. Rejects keys that match neither hotkey before reading modifier state. Also exposes `CaptureInterceptor` so the settings window can record a new hotkey — including Win-combos; that callback now runs on the hook thread. |
@@ -23,7 +27,9 @@ KeyboardHook ────┤                       window/screen)   thumb)
 | `CaptureWorker.cs`, `HotkeyDispatch.cs` | Dedicated workers with bounded queues. Native screenshot capture and startup capture warmup run on an STA worker; subscribers leave the native keyboard callback through a separate handoff worker. Neither worker needs the shared thread pool to dequeue work. Captured pixels are frozen before returning to WPF. |
 | `Responsiveness.cs` | Reference-counted process-priority boost for the length of a capture, with its own expiry so an overlay left open on an unattended desk cannot pin the process at High. |
 | `Warmup.cs` | Runs the whole capture → overlay → crop → encode → render path once at startup, at idle, showing nothing and writing nothing, so the first hotkey press is not the one that pays for it. |
-| `SnippingTool.cs` | Screenshot takeover writes `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingTool`, so Windows 11's PrintScreen binding is off. The prior value is saved for restoration. This does not disable the separate inbox clipping host. StartupManager independently owns WinSnipper's startup configuration; see [shortcut ownership](SCREENSHOT-OWNERSHIP.md). |
+| `SnippingTool.cs` | Manages `PrintScreenKeyForSnippingTool`: 1 when WinSnipper is the selected Windows capture default for on-demand launch; 0 for the earlier resident hook-only mode. Persists ownership/original state before writes and preserves outside changes on restoration. |
+| `CaptureActivation.cs` | Bounded screenshot/recording/probe intents over a message-only HWND. Verifies executable/user SID, admits one UIPI message, suppresses duplicate retries and transfers foreground permission. Cold startup validates the existing owner task before running it. |
+| `WindowsCaptureIntegration.cs`, `CaptureDefaultWatcher.cs` | Per-user capability/ProgID registration and URI validation; Windows owns the protected default choice. Read-only registry notifications update PrintScreen policy after owner selection. [Integration](WINDOWS-CAPTURE-DEFAULT.md). |
 | `PerformanceTrace.cs` | Input-to-first-render stages for capture overlays and editors. Carries the keyboard event timestamp through dispatch, records capture/construction/render times, and writes to the bounded session log on a worker. See [performance evidence](PERFORMANCE.md). |
 | `SnipManager.cs` | One snip end-to-end: hide thumbs → capture → overlay → crop → save + clipboard → spawn thumbnail. |
 | `SnipOverlay.xaml` | Fullscreen selection UI with three pick modes: drag a **region**, click a **window** (`EnumWindows` + DWM frame bounds, cloaked windows filtered), click a **screen**. Screenshots and recordings use cached opaque selectors over frozen pixels. Pointer updates coalesce to one compositor frame. The recording begins live after selection. Physical-pixel coordinates remain independent of display scaling. The old transparent constructor is retained but is not the recording entry path. |
@@ -129,10 +135,11 @@ survive the reboot and suppress the next logon's start.
   off that thread too. The dedicated pump and worker dispatch reduce exposure;
   the native recovery timer covers silent removal. System-wide stalls can
   still delay managed callbacks, so this is not an absolute timing guarantee.
-- **PrintScreen is a setting, not a hotkey.** Swallowing the key is not enough
-  on Windows 11, because the shell's PrintScreen → Snipping Tool binding lives
-  in the registry. `SnippingTool.cs` turns it off and records what it replaced;
-  `tools\winsnipper.ps1 uninstall` puts it back. Alt+PrintScreen is left alone.
+- **PrintScreen has both hook and Windows association routes.** The binding is
+  enabled when the selected Windows default is WinSnipper, allowing cold launch;
+  it is disabled for resident-only interception when another handler is default.
+  Preserve the original and last-applied values. Never forge UserChoice/hash.
+  Alt+PrintScreen and unrelated Windows capture APIs are left alone.
 - **Capture pixels are never copied.** The desktop is blitted into a shared
   section that WPF maps and reads in place. The obvious alternative — blit into
   a GDI bitmap, hand the pixels to `BitmapSource.Create` — copies the entire

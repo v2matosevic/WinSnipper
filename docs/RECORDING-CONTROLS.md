@@ -1,8 +1,9 @@
 # Recording controls and responsive selection
 
-Implemented and verified locally on 2026-10-24. The owner approved installation;
-the local supervised update preserves elevated startup. No public release has
-been published. The installed process and payload evidence are recorded below.
+Implemented and verified locally on 2026-10-24, initially installed in the local
+0.9.1 update and now included in installed 0.9.2. Elevated startup is preserved.
+No public release includes these changes yet. The current [delivery handoff](HANDOFF-2026-10-24.md)
+supersedes the earlier installation snapshot below.
 
 ## Changes
 
