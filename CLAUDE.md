@@ -17,6 +17,8 @@ test, harnesses).
 | Build without touching bin/obj/dist | add `--artifacts-path <temp dir>` |
 | Publish into `dist` and restart the running app | `pwsh -File tools\winsnipper.ps1 build -Flavor both` |
 | Running? Which build? Native screenshot conflict? | `pwsh -File tools\winsnipper.ps1 status` |
+| Administrator-window hotkeys (opt-in, admin shell, restarts app) | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\winsnipper.ps1 setup -Elevated -Rebuild` |
+| Supervision regression checks (isolated) | `pwsh -NoProfile -File tools\test-supervision.ps1` |
 | Smoke test (exit 0 = pass) | `<exe> --selftest` |
 | Render editor/trim UI to PNGs | `pwsh -NoProfile -File tools\ui-shots.ps1` (`-Readme` refreshes `docs\images`) |
 | Capture benchmark | `pwsh -NoProfile -File tools\measure-capture.ps1` |

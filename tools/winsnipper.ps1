@@ -28,7 +28,14 @@ param(
     [string]$Flavor,
 
     # logs: how many lines of each log to show.
-    [int]$Tail = 25
+    [int]$Tail = 25,
+
+    # setup only: opt in to administrator-level hotkeys. Run from an elevated
+    # shell; this replaces the running instance and uses the task at logon.
+    [switch]$Elevated,
+
+    # setup only: refresh both local app builds before configuring startup.
+    [switch]$Rebuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,11 +50,29 @@ $RunKey    = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
 $RunValue  = 'WinSnipper'
 $CheckMins = 2
 
+if ($Elevated -and $Command -ne 'setup') {
+    throw '-Elevated is supported only with setup.'
+}
+if ($Rebuild -and $Command -ne 'setup') {
+    throw '-Rebuild is supported only with setup.'
+}
+
 # ---------------------------------------------------------------- helpers
 
 function Write-Step($msg) { Write-Host "  $msg" -ForegroundColor DarkGray }
 function Write-Ok($msg)   { Write-Host "  $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "  $msg" -ForegroundColor Yellow }
+
+function Test-Administrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Test-ElevatedTask {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    return ($null -ne $task -and [string]$task.Principal.RunLevel -eq 'Highest')
+}
 
 # The OCR flavor is the one Marko runs; fall back to lite if that's all there is.
 function Get-Exe {
@@ -86,7 +111,19 @@ function Invoke-Start {
         return
     }
     Remove-Item $QuitFlag -Force -ErrorAction SilentlyContinue
-    Start-Process -FilePath $exe -WorkingDirectory $DistDir
+    if (Test-ElevatedTask) {
+        # Preserve the chosen integrity level, including after a rebuild or a
+        # shortcut launch from Explorer. A direct launch would run at medium.
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+        if ([string]$task.State -eq 'Disabled') {
+            # A manual launch must not silently re-enable background startup.
+            Start-Process -FilePath $exe -WorkingDirectory $DistDir -Verb RunAs
+        } else {
+            Start-ScheduledTask -TaskName $TaskName
+        }
+    } else {
+        Start-Process -FilePath $exe -WorkingDirectory $DistDir
+    }
     Start-Sleep -Milliseconds 2500
     $proc = Get-AppProcess
     if ($proc) { Write-Ok "Started $([IO.Path]::GetFileName($exe)) (pid $($proc.Id))." }
@@ -169,6 +206,7 @@ function Invoke-Build {
 
 function Install-KeepAlive {
     $exe = Assert-Exe
+    $runLevel = if ($Elevated -or (Test-ElevatedTask)) { 'Highest' } else { 'Limited' }
 
     # One action, two reasons to fire: at logon, and every couple of minutes
     # after. MultipleInstances=IgnoreNew means the ticks are free while the
@@ -190,16 +228,23 @@ function Install-KeepAlive {
         -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
-        -LogonType Interactive -RunLevel Limited
+        -LogonType Interactive -RunLevel $runLevel
 
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
         -Settings $settings -Principal $principal -Force `
         -Description 'Restarts WinSnipper within a couple of minutes if it crashes or is killed. Honours a deliberate tray Exit.' | Out-Null
 
-    Write-Ok "Keep-alive task registered (checks every $CheckMins min)."
+    Write-Ok "Keep-alive task registered (checks every $CheckMins min, $runLevel privileges)."
 }
 
 function Install-Autostart {
+    if (Test-ElevatedTask) {
+        # The logon task must win. A competing HKCU Run launch would claim the
+        # single-instance mutex first at medium integrity and recreate the bug.
+        Remove-ItemProperty -Path $RunKey -Name $RunValue -ErrorAction SilentlyContinue
+        Write-Ok 'Administrator startup is handled by the keep-alive logon task.'
+        return
+    }
     $exe = Assert-Exe
     New-Item -Path $RunKey -Force | Out-Null
     Set-ItemProperty -Path $RunKey -Name $RunValue -Value "`"$exe`""
@@ -216,7 +261,13 @@ function Install-Shortcuts {
     foreach ($path in $targets) {
         New-Item -ItemType Directory -Force -Path (Split-Path $path) | Out-Null
         $lnk = $shell.CreateShortcut($path)
-        $lnk.TargetPath       = $exe
+        if (Test-ElevatedTask) {
+            $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            $lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" start"
+        } else {
+            $lnk.TargetPath = $exe
+            $lnk.Arguments = ''
+        }
         $lnk.WorkingDirectory = $DistDir
         $lnk.IconLocation     = $exe
         $lnk.Description      = 'WinSnipper - snip, annotate, OCR, record'
@@ -226,12 +277,20 @@ function Install-Shortcuts {
 }
 
 function Invoke-Setup {
+    # Check before building, writing settings/tasks or stopping anything.
+    if (($Elevated -or (Test-ElevatedTask)) -and -not (Test-Administrator)) {
+        throw 'Administrator hotkey setup requires an elevated PowerShell window. No setup changes were made.'
+    }
     Write-Host "`nWinSnipper setup" -ForegroundColor Cyan
+    if ($Rebuild) {
+        $Flavor = 'both'
+        Invoke-Build
+    }
     Assert-Exe | Out-Null
-    Install-Autostart
     Install-KeepAlive
+    Install-Autostart
     Install-Shortcuts
-    Invoke-Start
+    if ($Elevated) { Invoke-Restart } else { Invoke-Start }
     Write-Host ''
     Invoke-Status
 }
@@ -285,9 +344,13 @@ function Invoke-Status {
     }
 
     if ($proc) {
-        $up = (Get-Date) - $proc.StartTime
-        Write-Ok ("running  pid {0}, up {1:%d}d {1:%h}h {1:%m}m, {2} MB" -f `
-            $proc.Id, $up, [math]::Round($proc.WorkingSet64 / 1MB, 1))
+        try {
+            $up = (Get-Date) - $proc.StartTime
+            Write-Ok ("running  pid {0}, up {1:%d}d {1:%h}h {1:%m}m, {2} MB" -f `
+                $proc.Id, $up, [math]::Round($proc.WorkingSet64 / 1MB, 1))
+        } catch {
+            Write-Ok "running  pid $($proc.Id) (process details unavailable from this shell)"
+        }
     } else {
         Write-Warn 'running  no'
     }
@@ -299,13 +362,15 @@ function Invoke-Status {
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($task) {
         $info = Get-ScheduledTaskInfo -TaskName $TaskName
-        Write-Ok "watchdog $($task.State), last ran $($info.LastRunTime), next $($info.NextRunTime)"
+        Write-Ok "watchdog $($task.State), privileges $($task.Principal.RunLevel), last ran $($info.LastRunTime), next $($info.NextRunTime)"
     } else {
         Write-Warn "watchdog not installed. Run: tools\winsnipper.ps1 setup"
     }
 
     $run = Get-ItemProperty -Path $RunKey -Name $RunValue -ErrorAction SilentlyContinue
-    if ($run) { Write-Ok "autostart $($run.$RunValue)" } else { Write-Warn 'autostart off' }
+    if ($run) { Write-Ok "autostart $($run.$RunValue)" }
+    elseif ((Test-ElevatedTask) -and [string]$task.State -ne 'Disabled') { Write-Ok 'autostart elevated logon task (no competing standard-user launch)' }
+    else { Write-Warn 'autostart off' }
 
     # Process health alone does not prove exclusive ownership of the shortcuts.
     # These checks are read-only; never remove or stop the native app from status.
@@ -345,6 +410,12 @@ function Invoke-Logs {
 }
 
 # ---------------------------------------------------------------- dispatch
+
+# A limited shell cannot stop an elevated instance. Fail before changing the
+# quit marker, otherwise a failed stop/build would disable crash recovery.
+if ($Command -in @('stop', 'restart', 'build') -and (Test-ElevatedTask) -and -not (Test-Administrator)) {
+    throw 'This WinSnipper installation runs elevated. Use an administrator PowerShell window for stop, restart or build. No changes were made.'
+}
 
 switch ($Command) {
     'setup'     { Invoke-Setup }
