@@ -19,6 +19,8 @@ test, harnesses).
 | Running? Which build? Native screenshot conflict? | `pwsh -File tools\winsnipper.ps1 status` |
 | Administrator-window hotkeys (opt-in, admin shell, restarts app) | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\winsnipper.ps1 setup -Elevated -Rebuild` |
 | Supervision regression checks (isolated) | `pwsh -NoProfile -File tools\test-supervision.ps1` |
+| Windows capture integration checks | `pwsh -NoProfile -File tools\test-capture-integration.ps1` |
+| Install/register capture default candidate (restarts app) | `pwsh -File tools\winsnipper.ps1 build -Flavor both -RegisterCapture` |
 | Recording HUD, selector and safety shortcuts | `pwsh -NoProfile -File tools\test-recording-controls.ps1` |
 | Smoke test (exit 0 = pass) | `<exe> --selftest` |
 | Render editor/trim UI to PNGs | `pwsh -NoProfile -File tools\ui-shots.ps1` (`-Readme` refreshes `docs\images`) |
@@ -28,6 +30,8 @@ test, harnesses).
 Latest stable delivery and exact verification: [docs/RELEASE-0.9.1.md](docs/RELEASE-0.9.1.md).
 Screenshot shortcut ownership and native app removal boundaries:
 [docs/SCREENSHOT-OWNERSHIP.md](docs/SCREENSHOT-OWNERSHIP.md).
+Windows capture default candidate, security boundary and owner selection:
+[docs/WINDOWS-CAPTURE-DEFAULT.md](docs/WINDOWS-CAPTURE-DEFAULT.md).
 Heavy-load responsiveness implementation (`88824f7`) and verification:
 [docs/PERFORMANCE-2026-10-13.md](docs/PERFORMANCE-2026-10-13.md).
 Optional ADE screenshot attachment requires a capture-protocol-v1 receiver;
@@ -64,11 +68,16 @@ integration from the WinSnipper version alone.
 - A capture's pixels live in an unmanaged section WPF reads in place. Never
   return an unfrozen capture, and never let the section handle and its bitmap
   come apart — `ConditionalWeakTable` is what ties them.
-- Screenshot takeover may write only
+- Screenshot key routing may write
   `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingTool`. Record its old
   value before changing it; the checkbox and `winsnipper.ps1 uninstall` restore
   it. Startup separately owns the WinSnipper Run value and, for an opted-in
   elevated installation, its existing keep-alive task's enabled state.
+- Capture registration writes only its own HKCU capabilities,
+  RegisteredApplications entry and WinSnipper.ScreenClip ProgID. Never write
+  UserChoice/hash or claim registration makes it default. The owner chooses in
+  Windows Settings. Activation verifies executable/user SID, accepts bounded
+  intents only and transfers no paths or images across elevation.
 - Interop: vtable placeholders are named `ReservedN`, never `_VtblGap*` (the
   runtime reads that prefix as a gap directive). Verify GUIDs against the
   Windows SDK headers.

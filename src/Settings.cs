@@ -32,6 +32,10 @@ public sealed class Settings
     /// set", the state we restore by deleting ours.
     /// </summary>
     public int SavedPrintScreenBinding { get; set; } = -1;
+    public bool PrintScreenBindingCaptured { get; set; }
+    public int? AppliedPrintScreenBinding { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal bool LegacyPrintScreenBinding { get; set; }
 
     public int DismissSeconds { get; set; } = 3;
     public string SaveDir { get; set; } = DefaultSaveDir;
@@ -62,7 +66,8 @@ public sealed class Settings
     public void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+        var json = JsonSerializer.SerializeToUtf8Bytes(this, new JsonSerializerOptions { WriteIndented = true });
+        ReliableIO.Write(FilePath, stream => stream.Write(json));
         Current = this;
         Changed?.Invoke();
     }
@@ -74,7 +79,13 @@ public sealed class Settings
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath)) ?? new Settings();
+            {
+                string json = File.ReadAllText(FilePath);
+                var settings = JsonSerializer.Deserialize<Settings>(json) ?? new Settings();
+                using var document = JsonDocument.Parse(json);
+                settings.LegacyPrintScreenBinding = !document.RootElement.TryGetProperty(nameof(PrintScreenBindingCaptured), out _);
+                return settings;
+            }
         }
         catch
         {

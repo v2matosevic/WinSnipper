@@ -16,6 +16,9 @@ public partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
+        var monitor = Monitors.FromCursor();
+        MaxHeight = Math.Max(240, monitor.Height / monitor.Scale - 24);
+        MaxWidth = Math.Max(300, monitor.Width / monitor.Scale - 24);
 
         HotkeyBox.Content = Util.CurrentHotkeyDisplay;
         RecHotkeyBox.Content = Util.RecordHotkeyDisplay;
@@ -40,6 +43,12 @@ public partial class SettingsWindow : Window
 
         VersionText.Text = $"WinSnipper {Util.AppVersion}{(Util.OcrSupported ? " (OCR)" : "")}";
         RefreshOcrStatus();
+        RefreshCaptureDefault();
+        Activated += (_, _) =>
+        {
+            SnippingTool.ApplyPolicy();
+            RefreshCaptureDefault();
+        };
 
         Closed += (_, _) => StopCapture();
     }
@@ -52,6 +61,19 @@ public partial class SettingsWindow : Window
         _ = DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int));
         int round = 2;
         _ = DwmSetWindowAttribute(hwnd, 33, ref round, sizeof(int));
+    }
+
+    private void RefreshCaptureDefault()
+    {
+        CaptureDefaultStatus.Text = SnippingTool.LastError ?? (WindowsCaptureIntegration.IsDefault
+            ? "Windows capture links open WinSnipper, including when the app was closed."
+            : "Choose WinSnipper for MS-SCREENCLIP in Windows Default apps. Windows keeps the final choice with you.");
+    }
+
+    private void CaptureDefault_Click(object sender, RoutedEventArgs e)
+    {
+        try { WindowsCaptureIntegration.OpenDefaults(); }
+        catch (Exception ex) { CaptureDefaultStatus.Text = $"Could not open Windows defaults: {ex.Message}"; }
     }
 
     // ---------- hotkey capture ----------
@@ -193,6 +215,12 @@ public partial class SettingsWindow : Window
         _draft.AutoDeleteDays = AutoDeleteCheck.IsChecked == true
             ? AutoDeleteChoices[Math.Clamp(AutoDeleteCombo.SelectedIndex, 0, AutoDeleteChoices.Length - 1)]
             : 0;
+        // Returning from Windows defaults can update the live policy snapshot.
+        // Do not replace its original-value metadata with this older draft.
+        _draft.SavedPrintScreenBinding = Settings.Current.SavedPrintScreenBinding;
+        _draft.PrintScreenBindingCaptured = Settings.Current.PrintScreenBindingCaptured;
+        _draft.AppliedPrintScreenBinding = Settings.Current.AppliedPrintScreenBinding;
+        _draft.LegacyPrintScreenBinding = Settings.Current.LegacyPrintScreenBinding;
         _draft.Save();
         SnippingTool.ApplyPolicy();
         try { StartupManager.SetEnabled(StartupCheck.IsChecked == true); } catch { }

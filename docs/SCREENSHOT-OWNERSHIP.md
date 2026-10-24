@@ -1,5 +1,10 @@
 # Screenshot shortcut ownership
 
+The [0.9.2 default-capture candidate](WINDOWS-CAPTURE-DEFAULT.md) adds protocol
+registration and on-demand activation for the remaining Windows route. It is
+implemented/tested locally but is not installed or owner-selected yet. The
+resident-only behavior below describes the installed 0.9.1 build.
+
 `pwsh -File tools\winsnipper.ps1 status` checks the running WinSnipper build,
 supervision, Windows' PrintScreen binding, the current user's Microsoft Snipping
 Tool registration and active native screenshot processes. Status changes nothing.

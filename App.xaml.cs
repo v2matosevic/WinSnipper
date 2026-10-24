@@ -11,6 +11,8 @@ public partial class App : Application
     private static Mutex? _mutex;
     private KeyboardHook? _hook;
     private TrayIcon? _tray;
+    private CaptureActivation? _activation;
+    private CaptureDefaultWatcher? _defaultWatcher;
     private readonly SnipManager _snips = new();
     private readonly Recording.RecordingManager _recordings = new();
     private int _snipPending;
@@ -19,6 +21,31 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        if (e.Args.Length == 1 && e.Args[0] == "--register-capture")
+        {
+            try { WindowsCaptureIntegration.Register(Environment.ProcessPath!); Shutdown(0); }
+            catch (Exception ex) { Util.LogCrash("Register capture", ex); Shutdown(1); }
+            return;
+        }
+        if (e.Args.Length == 1 && e.Args[0] == "--capture-defaults")
+        {
+            try { WindowsCaptureIntegration.OpenDefaults(); Shutdown(0); }
+            catch (Exception ex) { Util.LogCrash("Open capture defaults", ex); Shutdown(1); }
+            return;
+        }
+        if (e.Args.Length == 1 && e.Args[0] == "--capture-probe")
+        {
+            ActivateCaptureAsync(CaptureIntent.Probe);
+            return;
+        }
+        if (e.Args.Length > 0 && e.Args[0] == "--capture-uri")
+        {
+            if (e.Args.Length == 2 && WindowsCaptureIntegration.TryParse(e.Args[1], out var intent))
+                ActivateCaptureAsync(intent);
+            else Shutdown(64);
+            return;
+        }
 
         // Headless smoke test: capture the screen, write a PNG, OCR it, exit.
         // Must stay async — blocking on WinRT from the STA thread deadlocks.
@@ -60,6 +87,26 @@ public partial class App : Application
             Shutdown(0);
             return;
         }
+
+        StartResident();
+    }
+
+    private async void ActivateCaptureAsync(CaptureIntent intent)
+    {
+        try
+        {
+            if (await Task.Run(() => CaptureActivation.TryForwardOrStart(intent))) { Shutdown(0); return; }
+            if (intent == CaptureIntent.Probe) { Shutdown(2); return; }
+            // Portable, unsupervised installs can still be the default capture
+            // app at their normal integrity level. Configured elevated installs
+            // use the verified task path above, preserving existing privileges.
+            StartResident(intent);
+        }
+        catch (Exception ex) { Util.LogCrash("Native capture activation", ex); Shutdown(1); }
+    }
+
+    private void StartResident(CaptureIntent? initialCapture = null)
+    {
 
         // Only the instance that actually owns the mutex may release it — the
         // loser used to keep the handle and throw an unhandled
@@ -115,6 +162,15 @@ public partial class App : Application
         // Win+Shift+S is ours by way of the hook; PrintScreen is a Windows
         // setting, so it has to be turned off rather than intercepted.
         SnippingTool.ApplyPolicy();
+        try { _defaultWatcher = CaptureDefaultWatcher.Start(() =>
+        {
+            if (!Dispatcher.HasShutdownStarted)
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)SnippingTool.ApplyPolicy);
+        }); }
+        catch (Exception ex) { Util.LogCrash("Capture default watcher", ex); }
+        try { _activation = new CaptureActivation(DispatchNativeCapture); }
+        catch (Exception ex) { Util.LogCrash("Capture activation endpoint", ex); }
+        if (initialCapture is { } request) DispatchNativeCapture(request);
 
         // Pay the first-capture cost now, at idle, rather than on the first
         // hotkey press.
@@ -127,6 +183,13 @@ public partial class App : Application
 
         _ = CheckForUpdatesLoop();
         _ = AutoCleanup.RunLoopAsync();
+    }
+
+    private void DispatchNativeCapture(CaptureIntent intent)
+    {
+        uint now = unchecked((uint)Environment.TickCount);
+        if (intent == CaptureIntent.Screenshot) QueueCapture("snip", now, _snips.StartSnipAsync);
+        else if (intent == CaptureIntent.Recording) QueueCapture("record", now, _recordings.ToggleAsync);
     }
 
     // ---------- stability ----------
@@ -345,6 +408,8 @@ public partial class App : Application
         if (_recordings.IsRecording)
             try { _recordings.StopAsync().Wait(TimeSpan.FromSeconds(5)); } catch { }
         _hook?.Dispose();
+        _activation?.Dispose();
+        _defaultWatcher?.Dispose();
         CaptureWorker.Shutdown();
         _tray?.Dispose();
         // Only a run that actually started logs an exit, so a "startup" line

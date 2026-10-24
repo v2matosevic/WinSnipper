@@ -1,5 +1,20 @@
 ﻿# Changelog
 
+## Unreleased: 0.9.2 candidate (2026-10-24)
+
+- Add per-user Windows screen-capture registration, resident activation and
+  supervised on-demand startup. Windows keeps default selection owner-controlled.
+  [Integration and verification](docs/WINDOWS-CAPTURE-DEFAULT.md).
+- Adapt PrintScreen routing to the chosen default, persist original state before
+  mutation, migrate legacy ownership and save settings atomically.
+- Add default-capture setup/status to a monitor-bounded settings panel.
+- Keep fullscreen recording controls reachable, add pause/stop safety shortcuts
+  and tray recovery, and coalesce cached selection drawing to display frames.
+  [Recording checks](docs/RECORDING-CONTROLS.md).
+- Preserve elevated supervision and Normal startup priority during approved updates.
+
+The current public stable release remains 0.9.1. These changes are local.
+
 ## 0.9.1 — 2026-10-13
 
 Reduce repeated screenshot-opening work and keep native capture waits off the UI thread.

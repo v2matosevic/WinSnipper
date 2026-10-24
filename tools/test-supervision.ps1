@@ -19,6 +19,7 @@ $QuitFlag = 'X:\NeverUsed\quit.flag'
 $StateDir = 'X:\NeverUsed'
 $Elevated = $false
 $Rebuild = $false
+$RegisterCapture = $false
 $script:existingHigh = $false
 $script:isAdmin = $false
 $script:running = $false
@@ -176,3 +177,23 @@ $script:events.Clear()
 Invoke-Setup
 Assert (($script:events -join ',') -eq 'build,register,remove-run,shortcuts,restart') 'Rebuild/setup order is wrong'
 Write-Output 'PASS: requested app rebuild precedes elevated setup'
+
+$Rebuild=$false
+$RegisterCapture=$true
+$script:events.Clear()
+function Register-CaptureDefault { $script:events.Add('capture-register') }
+Invoke-Setup
+Assert (($script:events -join ',') -eq 'register,remove-run,shortcuts,capture-register,restart') 'Capture registration was skipped or ran before startup setup'
+Write-Output 'PASS: opt-in capture registration runs before approved setup restart'
+
+# Exercise the real build ordering with fake publishers and file copies only.
+$script:running=$false
+$script:existingHigh=$false
+$script:events.Clear()
+$Root=$PSScriptRoot
+$DistDir=Join-Path $env:TEMP 'WinSnipper-supervision-not-created'
+function dotnet { $script:events.Add('publish'); $global:LASTEXITCODE=0 }
+function Copy-Item { param($Path,$Destination,[switch]$Force) $script:events.Add('copy') }
+& $script:realBuild
+Assert (($script:events -join ',') -eq 'new-key,quit-flag,publish,copy,publish,copy,capture-register,clear-quit') 'Build must publish both flavors before capture registration and preserve stopped state'
+Write-Output 'PASS: build registers capture only after both payloads publish and leaves an originally stopped app stopped'

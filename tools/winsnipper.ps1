@@ -35,7 +35,11 @@ param(
     [switch]$Elevated,
 
     # setup only: refresh both local app builds before configuring startup.
-    [switch]$Rebuild
+    [switch]$Rebuild,
+
+    # setup/build: register WinSnipper in the owner's Windows Default apps list.
+    # Windows still requires the owner to select the protected default.
+    [switch]$RegisterCapture
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,6 +59,9 @@ if ($Elevated -and $Command -ne 'setup') {
 }
 if ($Rebuild -and $Command -ne 'setup') {
     throw '-Rebuild is supported only with setup.'
+}
+if ($RegisterCapture -and $Command -notin @('setup', 'build')) {
+    throw '-RegisterCapture is supported only with setup or build.'
 }
 
 # ---------------------------------------------------------------- helpers
@@ -134,6 +141,25 @@ function Assert-Exe {
     }
     if (-not $exe) { throw "No WinSnipper executable in $DistDir and the build produced none." }
     return $exe
+}
+
+function Register-CaptureDefault {
+    $exe = Assert-Exe
+    if ([version](Get-Item $exe).VersionInfo.FileVersion -lt [version]'0.9.2.0') {
+        throw 'Build WinSnipper 0.9.2 or newer before registering native capture activation.'
+    }
+    & $exe --register-capture | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Capture registration failed; check the app crash log.' }
+    $key = Get-Item 'HKCU:\Software\Classes\WinSnipper.ScreenClip\shell\open\command' -ErrorAction Stop
+    $expected = "`"$exe`" --capture-uri `"%1`""
+    if ($key.GetValue('') -ne $expected) { throw 'Capture registration did not resolve to the installed executable.' }
+    Write-Ok 'WinSnipper registered in Windows Default apps. No protected default choice was changed.'
+    Write-Step 'In WinSnipper Settings, click Set as Windows capture default, then choose WinSnipper for MS-SCREENCLIP.'
+}
+
+function Test-CaptureDefault {
+    $choice = Get-Item 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\ms-screenclip\UserChoice' -ErrorAction SilentlyContinue
+    return ($null -ne $choice -and $choice.GetValue('ProgId') -eq 'WinSnipper.ScreenClip')
 }
 
 # ---------------------------------------------------------------- actions
@@ -252,6 +278,7 @@ function Invoke-Build {
             Copy-Item (Join-Path $stage 'WinSnipper.exe') (Join-Path $DistDir $t.Out) -Force
             Write-Ok "dist\$($t.Out)"
         }
+        if ($RegisterCapture) { Register-CaptureDefault }
     }
     finally {
         # Invoke-Start clears the flag itself; otherwise put it back as it was.
@@ -351,6 +378,7 @@ function Invoke-Setup {
     Install-KeepAlive
     Install-Autostart
     Install-Shortcuts
+    if ($RegisterCapture -and -not $Rebuild) { Register-CaptureDefault }
     if ($Elevated) { Invoke-Restart } else { Invoke-Start }
     Write-Host ''
     Invoke-Status
@@ -365,13 +393,21 @@ function Restore-PrintScreen {
     # Set-StrictMode makes a missing property fatal, so look before reading.
     $key = Get-ItemProperty -Path $kb -ErrorAction SilentlyContinue
     if (-not $key -or ($key.PSObject.Properties.Name -notcontains $name)) { return }
-    if ($key.$name -ne 0) { return }  # not ours to restore
-
     $saved = -1
+    $applied = 0
     $settings = Join-Path $StateDir 'settings.json'
     if (Test-Path $settings) {
-        try { $saved = [int](Get-Content $settings -Raw | ConvertFrom-Json).SavedPrintScreenBinding } catch { $saved = -1 }
+        try {
+            $data = Get-Content $settings -Raw | ConvertFrom-Json
+            $saved = [int]$data.SavedPrintScreenBinding
+            if ($data.PSObject.Properties.Name -contains 'PrintScreenBindingCaptured') {
+                if (-not $data.PrintScreenBindingCaptured) { return }
+                if ($null -ne $data.AppliedPrintScreenBinding) { $applied = [int]$data.AppliedPrintScreenBinding }
+            }
+        } catch { return } # Unknown ownership is not permission to modify Windows.
     }
+    else { return }
+    if ($key.$name -ne $applied) { return } # user changed it outside WinSnipper
     if ($saved -ge 0) { Set-ItemProperty -Path $kb -Name $name -Value $saved -Type DWord }
     else { Remove-ItemProperty -Path $kb -Name $name -ErrorAction SilentlyContinue }
     Write-Ok 'PrintScreen handed back to Windows.'
@@ -436,18 +472,25 @@ function Invoke-Status {
     # Process health alone does not prove exclusive ownership of the shortcuts.
     # These checks are read-only; never remove or stop the native app from status.
     $keyboard = Get-Item 'HKCU:\Control Panel\Keyboard' -ErrorAction SilentlyContinue
+    $isCaptureDefault = Test-CaptureDefault
     $binding = if ($keyboard) { $keyboard.GetValue('PrintScreenKeyForSnippingTool') } else { $null }
     if ($null -ne $binding -and $binding -eq 0) {
         Write-Ok 'PrintScreen Windows Snipping Tool binding is off.'
+    } elseif ($binding -eq 1 -and $isCaptureDefault) {
+        Write-Ok 'PrintScreen Windows capture route is on and its default is WinSnipper.'
     } else {
         Write-Warn 'PrintScreen Windows Snipping Tool binding is on or uses the Windows default.'
     }
+    if ($isCaptureDefault) { Write-Ok 'default  Windows capture links open WinSnipper, including on-demand launch.' }
+    else { Write-Warn 'default  Windows capture still points elsewhere; interception requires WinSnipper to be running.' }
 
     try {
         $native = @(Get-AppxPackage -Name Microsoft.ScreenSketch -ErrorAction Stop)
         if ($native.Count) {
             Write-Warn "native   Microsoft Snipping Tool is installed (v$($native[0].Version))."
-            Write-Step '         Win+Shift+S still depends on the WinSnipper keyboard hook winning.'
+            if (-not $isCaptureDefault) {
+                Write-Step '         Win+Shift+S still depends on the WinSnipper keyboard hook winning.'
+            }
         } else {
             Write-Ok 'native   Microsoft Snipping Tool is not registered for this user.'
         }

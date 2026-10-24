@@ -121,6 +121,7 @@
                     HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"/>
         </Grid>
 
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="22,18,22,20">
             <!-- hotkey -->
             <TextBlock Style="{StaticResource Label}" Text="Capture hotkey"/>
@@ -130,9 +131,12 @@
             <TextBlock Style="{StaticResource Hint}"
                        Text="Click, then press the combination you want (e.g. Win + Shift + S). Esc cancels."/>
             <CheckBox x:Name="SnippingToolCheck" Margin="0,10,0,0"
-                      Content="Replace the Windows Snipping Tool"/>
+                      Content="Use PrintScreen for WinSnipper"/>
             <TextBlock Style="{StaticResource Hint}"
-                       Text="Also captures on PrintScreen, and stops Windows opening its own snip overlay on that key. Unticking puts the key back exactly as it was."/>
+                       Text="Handles PrintScreen directly while running. When WinSnipper is your Windows capture default, the key can also launch it after closing."/>
+            <Button Style="{StaticResource FlatBtn}" Content="Set as Windows capture default…"
+                    HorizontalAlignment="Left" Margin="0,10,0,0" Click="CaptureDefault_Click"/>
+            <TextBlock x:Name="CaptureDefaultStatus" Style="{StaticResource Hint}"/>
 
             <!-- recording -->
             <TextBlock Style="{StaticResource Label}" Text="Recording hotkey" Margin="0,18,0,0"/>
@@ -217,5 +221,6 @@
                 </StackPanel>
             </Grid>
         </StackPanel>
+        </ScrollViewer>
     </DockPanel>
 </Window>
