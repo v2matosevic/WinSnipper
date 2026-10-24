@@ -16,13 +16,15 @@ test, harnesses).
 | Dev build | `dotnet build -c Release` (`-p:EnableOcr=true` for the OCR flavor) |
 | Build without touching bin/obj/dist | add `--artifacts-path <temp dir>` |
 | Publish into `dist` and restart the running app | `pwsh -File tools\winsnipper.ps1 build -Flavor both` |
-| Running? Which build? | `pwsh -File tools\winsnipper.ps1 status` |
+| Running? Which build? Native screenshot conflict? | `pwsh -File tools\winsnipper.ps1 status` |
 | Smoke test (exit 0 = pass) | `<exe> --selftest` |
 | Render editor/trim UI to PNGs | `pwsh -NoProfile -File tools\ui-shots.ps1` (`-Readme` refreshes `docs\images`) |
 | Capture benchmark | `pwsh -NoProfile -File tools\measure-capture.ps1` |
 | Failure regression checks | `pwsh -NoProfile -File tools\test-reliability.ps1` |
 
 Latest stable delivery and exact verification: [docs/RELEASE-0.9.1.md](docs/RELEASE-0.9.1.md).
+Screenshot shortcut ownership and native app removal boundaries:
+[docs/SCREENSHOT-OWNERSHIP.md](docs/SCREENSHOT-OWNERSHIP.md).
 Heavy-load responsiveness implementation (`88824f7`) and verification:
 [docs/PERFORMANCE-2026-10-13.md](docs/PERFORMANCE-2026-10-13.md).
 Optional ADE screenshot attachment requires a capture-protocol-v1 receiver;

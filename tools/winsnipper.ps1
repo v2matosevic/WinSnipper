@@ -306,6 +306,33 @@ function Invoke-Status {
 
     $run = Get-ItemProperty -Path $RunKey -Name $RunValue -ErrorAction SilentlyContinue
     if ($run) { Write-Ok "autostart $($run.$RunValue)" } else { Write-Warn 'autostart off' }
+
+    # Process health alone does not prove exclusive ownership of the shortcuts.
+    # These checks are read-only; never remove or stop the native app from status.
+    $keyboard = Get-Item 'HKCU:\Control Panel\Keyboard' -ErrorAction SilentlyContinue
+    $binding = if ($keyboard) { $keyboard.GetValue('PrintScreenKeyForSnippingTool') } else { $null }
+    if ($null -ne $binding -and $binding -eq 0) {
+        Write-Ok 'PrintScreen Windows Snipping Tool binding is off.'
+    } else {
+        Write-Warn 'PrintScreen Windows Snipping Tool binding is on or uses the Windows default.'
+    }
+
+    try {
+        $native = @(Get-AppxPackage -Name Microsoft.ScreenSketch -ErrorAction Stop)
+        if ($native.Count) {
+            Write-Warn "native   Microsoft Snipping Tool is installed (v$($native[0].Version))."
+            Write-Step '         Win+Shift+S still depends on the WinSnipper keyboard hook winning.'
+        } else {
+            Write-Ok 'native   Microsoft Snipping Tool is not registered for this user.'
+        }
+    } catch {
+        Write-Warn "native   Could not inspect Snipping Tool registration: $($_.Exception.Message)"
+    }
+    $nativeProcesses = @(Get-Process -Name SnippingTool,ScreenClippingHost -ErrorAction SilentlyContinue)
+    if ($nativeProcesses.Count) {
+        Write-Warn "native   Running: $(($nativeProcesses | ForEach-Object { "$($_.ProcessName) (pid $($_.Id))" }) -join ', ')."
+    }
+    Write-Step '         Screenshot conflict guidance: docs\SCREENSHOT-OWNERSHIP.md'
 }
 
 function Invoke-Logs {
