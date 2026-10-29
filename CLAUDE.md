@@ -22,7 +22,7 @@ test, harnesses).
 | Windows capture integration checks | `pwsh -NoProfile -File tools\test-capture-integration.ps1` |
 | Install/register capture default candidate (restarts app) | `pwsh -File tools\winsnipper.ps1 build -Flavor both -RegisterCapture` |
 | Recording HUD, selector and safety shortcuts | `pwsh -NoProfile -File tools\test-recording-controls.ps1` |
-| Smoke test (exit 0 = pass) | `<exe> --selftest` |
+| Smoke test (exit 0 = pass) | `(Start-Process <exe> --selftest -Wait -PassThru).ExitCode`, one exe at a time (GUI exe: `&` does not wait, and parallel runs collide on `_selftest.*`) |
 | Render editor/trim UI to PNGs | `pwsh -NoProfile -File tools\ui-shots.ps1` (`-Readme` refreshes `docs\images`) |
 | Capture benchmark | `pwsh -NoProfile -File tools\measure-capture.ps1` |
 | Failure regression checks | `pwsh -NoProfile -File tools\test-reliability.ps1` |

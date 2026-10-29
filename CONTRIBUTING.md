@@ -46,9 +46,13 @@ For shortcut dispatch and overlay lifecycle changes, also run
 repeat/release suppression, asynchronous request coalescing, boost expiry,
 capture failure cleanup and prepared-overlay pixel equivalence. It also opens
 a small nonactivated modal window far offscreen to verify accept/cancel/accept
-on the same HWND, clearing idle pixels and detaching per-show timing handlers.
-It installs no hooks, sends no input, shows nothing on the desktop and never
-touches the clipboard. The real capture-worker check uses the app's DPI manifest.
+on the same HWND, keeping the capture surface attached while idle and detaching
+per-show timing handlers. Windows far off screen are never rendered, so the
+check that every show displays the current capture (not a stale GPU copy)
+draws the real selector in small windows that DWM cloaks and reads them back
+with `PrintWindow`. It installs no hooks, sends no input, shows nothing on the
+desktop and never touches the clipboard. The real capture-worker check uses the
+app's DPI manifest.
 
 This compares current capture source with the pre-optimization baseline in a
 temporary .NET 8 harness using the app's DPI manifest. It captures the desktop

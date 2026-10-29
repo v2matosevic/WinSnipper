@@ -22,8 +22,11 @@ flavor so the lightweight build stays lightweight.
 
 ## Install
 
-The October 24 local installation is 0.9.2 with Windows capture default integration.
-The public download below remains 0.9.1. See the [delivery handoff and open checks](docs/HANDOFF-2026-10-24.md).
+The October 29 local installation is 0.9.3: a faster first screenshot after
+the app has been idle, plus a fix for the selection screen showing an old frame
+(seen as a black monitor) in the first 0.9.3 build. It includes the 0.9.2
+Windows capture default integration. The public download below remains 0.9.1.
+See the [delivery handoff and open checks](docs/HANDOFF-2026-10-29.md).
 
 Grab a build from [Releases](../../releases) and run it — it lives in the tray.
 Two flavors:
@@ -308,6 +311,7 @@ Ideas queued up — PRs welcome:
 ## Docs
 
 - [0.9.1 release and installation](docs/RELEASE-0.9.1.md)
+- [0.9.3 cold-path speed-up and the stale-selector fix](docs/PERFORMANCE-2026-10-29.md)
 - [Heavy-load responsiveness evidence](docs/PERFORMANCE-2026-10-13.md)
 - [Failure handling and verification](docs/RELIABILITY.md)
 - [Optional ADE integration](docs/ADE-INTEGRATION.md)
