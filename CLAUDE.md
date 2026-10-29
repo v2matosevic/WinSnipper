@@ -28,7 +28,7 @@ test, harnesses).
 | Failure regression checks | `pwsh -NoProfile -File tools\test-reliability.ps1` |
 
 Current installed state, final evidence and remaining acceptance/release work:
-[docs/HANDOFF-2026-10-24.md](docs/HANDOFF-2026-10-24.md). Do not infer public
+[docs/HANDOFF-2026-10-29.md](docs/HANDOFF-2026-10-29.md). Do not infer public
 release availability from the assembly/source version.
 Historical public 0.9.1 verification: [docs/RELEASE-0.9.1.md](docs/RELEASE-0.9.1.md).
 Screenshot shortcut ownership and native app removal boundaries:
@@ -37,8 +37,8 @@ Windows capture default candidate, security boundary and owner selection:
 [docs/WINDOWS-CAPTURE-DEFAULT.md](docs/WINDOWS-CAPTURE-DEFAULT.md).
 Heavy-load responsiveness implementation (`88824f7`) and verification:
 [docs/PERFORMANCE-2026-10-13.md](docs/PERFORMANCE-2026-10-13.md).
-Read before any performance work: the remaining lag is the cold path (first
-snip after idle), not warm speed; warm benchmarks do not show it.
+Read before any performance work: the lag was the cold path (first snip
+after idle), not warm speed; warm benchmarks do not show it.
 [docs/PERFORMANCE-2026-10-29.md](docs/PERFORMANCE-2026-10-29.md).
 Optional ADE screenshot attachment requires a capture-protocol-v1 receiver;
 see [docs/ADE-INTEGRATION.md](docs/ADE-INTEGRATION.md). Do not infer live
@@ -49,6 +49,11 @@ integration from the WinSnipper version alone.
 - Never publish into `dist` by hand. The keep-alive task relaunches the exe
   every 2 minutes and a raw publish fails on the locked file;
   `winsnipper.ps1 build` stands the task down for the publish.
+- `dist` is a junction to `%LOCALAPPDATA%\Programs\WinSnipper` on the SSD.
+  Never replace it with a real folder: `B:` is a saturated hard drive and an
+  idle app reloads evicted code from its exe. `winsnipper.ps1 build` keeps it.
+- Startup must normalize memory and I/O priority, not only the CPU class:
+  the keep-alive task launches with memory priority 2 and Low I/O priority.
 - Never test UI by driving the maintainer's desktop: no synthetic input, no
   windows or popups on screen. Render offscreen with `tools\ui-shots.ps1`
   and leave the hands-on pass to the maintainer.
@@ -71,9 +76,14 @@ integration from the WinSnipper version alone.
   delivers LL hook callbacks on the installing thread; behind a busy UI thread
   the callback exceeds `LowLevelHooksTimeout` and Windows hands the keystroke
   to the shell — the built-in Snipping Tool opening over us is exactly that.
-- A capture's pixels live in an unmanaged section WPF reads in place. Never
-  return an unfrozen capture, and never let the section handle and its bitmap
-  come apart — `ConditionalWeakTable` is what ties them.
+- Selector pixels live in one reused section that WPF reads in place through
+  one UI-thread `InteropBitmap` (re-blit, then `Invalidate()`). Never create a
+  new desktop-sized WPF bitmap per snip: WPF answers each with a full GC. Never
+  blit while a selector shows the surface. Anything that outlives the selector
+  takes `ScreenCapture.CopyRegion`; a frozen `CroppedBitmap` over the surface
+  would freeze the surface itself.
+- In the snip path, start the clipboard copy before any disk access and keep
+  disk I/O off the UI thread. The save folder can be a sleeping hard drive.
 - Screenshot key routing may write
   `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingTool`. Record its old
   value before changing it; the checkbox and `winsnipper.ps1 uninstall` restore
@@ -93,7 +103,7 @@ integration from the WinSnipper version alone.
   (which destroys its HWND). Clear its screenshot and refresh selection/monitor
   state between shows. `IsOpen` includes the pending capture reservation, not
   the idle hidden HWND. Recording uses the same opaque cached-selector lifecycle,
-  with frozen pixels only while selecting. Coalesce pointer drawing to one frame.
+  showing the shared surface only while selecting. Coalesce pointer drawing to one frame.
 
 ## Release
 

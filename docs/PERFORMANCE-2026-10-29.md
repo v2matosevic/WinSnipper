@@ -1,39 +1,97 @@
-# Cold-path lag diagnosis, 2026-10-29
+# Cold-path lag: diagnosis and fix, 2026-10-29
 
-Investigation only. No application code changed, nothing installed, the running
-app (PID 55052, 0.9.2 OCR, up 46 h) was inspected and never stopped. Earlier
-rounds: [September](PERFORMANCE.md), [October 13](PERFORMANCE-2026-10-13.md).
+## Delivery state
 
-## Answer
+Implemented, verified locally and installed. WinSnipper 0.9.3 from `dad95ab`
+runs from the SSD (`%LOCALAPPDATA%\Programs\WinSnipper`, with `dist` as a
+junction). The owner approved the restarts ("do whatever you need to do").
+Nothing was published; public stable remains 0.9.1. Installed hashes and
+remaining checks: [handoff](HANDOFF-2026-10-29.md). Earlier rounds:
+[September](PERFORMANCE.md), [October 13](PERFORMANCE-2026-10-13.md).
 
-WinSnipper is fast when it is already in memory and slow when Windows has pushed
-it out. On this PC that happens after roughly 15 idle minutes. The machine is
-overcommitted (64 GB committed on 48 GB of RAM), so an idle tray app is one of
-the first things evicted. Getting it back means reading its memory back from disk,
-and three things make that slow:
+## What was wrong
 
-1. Every screenshot triggers a full .NET garbage collection, which touches the
-   whole heap and drags it back from the pagefile at the moment of the hotkey.
-   WPF itself triggers this for each new desktop-sized bitmap; our own
-   `GC.AddMemoryPressure` call is not the only cause.
-2. The installed exe runs from `B:`, a 3 TB hard drive that is saturated by the
-   rest of `B:\Coding` (about 150 ms per I/O with 9 to 26 requests queued at
-   inspection). Whatever Windows reloads from that file waits in that queue.
-3. Screenshots save to `D:`, a hard drive the power plan spins down after 20
-   idle minutes. After a selection, the UI thread checks for the file on `D:`
-   before it starts the clipboard copy, and the editor waits for the save.
+WinSnipper was fast when it was already in memory and slow when Windows had
+pushed it out, which on this PC happened after roughly 15 idle minutes. The
+machine is overcommitted (64 GB committed on 48 GB of RAM), so idle processes
+are trimmed. Five things made getting back slow; the last two were found
+during the fix:
 
-The earlier rounds optimised work done by a warm process (capture speed, window
-reuse, threads, priority). That path is already fast. None of them addressed
-residency, and every benchmark ran warm, which is why the fixes measured well
-and the real experience did not change.
+| Cause | Fix |
+|---|---|
+| Every snip created a new desktop-sized WPF bitmap, and WPF answers each with a full garbage collection. On a trimmed process that dragged the whole heap back from disk at the hotkey. Our own `GC.AddMemoryPressure` was not the only trigger. | One shared capture section and one `InteropBitmap` per session, re-blitted and invalidated; selections are copied out (`ScreenCapture.CopyRegion`). |
+| The installed exe ran from `B:`, a 3 TB hard drive saturated by the rest of `B:\Coding` (92 to 175 ms per I/O, 9 to 26 queued). | Install on the SSD; `dist` is a junction, so the elevated task and Windows registration keep their paths. |
+| Screenshots save to `D:`, a hard drive the power plan spun down after 20 idle minutes, and the UI thread checked `D:` before starting the clipboard copy. The editor waited for the save. | Clipboard first; no disk I/O on the UI thread; name clashes settled on the save worker; editor opens from memory. Disk spin-down on AC power set to never (owner-approved system setting). |
+| The keep-alive task launches with Task Scheduler's default priority 7: memory priority 2 and Low I/O priority as well as Below Normal CPU. Startup reset only the CPU class, so Windows reclaimed the app's pages first and its page-ins queued behind all other disk traffic. | Startup normalizes memory priority to 5 and I/O priority to 2. Existing threads follow the process values (tested). |
+| Nothing kept the warm path resident. | Hard minimum working set after warm-up (WS + 48 MB, 128 to 320 MB). |
 
-## Evidence
+The earlier rounds optimised work done by a warm process, which was already
+fast, and every benchmark ran warm. That is why they measured well and the
+experience did not change.
+
+## Verification
+
+Builds: both flavors, zero warnings. Suites: `test-hotkey.ps1` 14 groups (new:
+repeat captures reuse one surface with no full collection; selection copies
+keep their pixels; scheduled-task priorities normalized), `test-reliability.ps1`
+29 (new: name clashes, editor waits for a pending first save and uses its name,
+failed first save leaves the editor dirty), `test-capture-integration.ps1` 43,
+`test-recording-controls.ps1` 40, `test-supervision.ps1` 12 in PS7 and PS5.1
+(new: SSD move renames, never deletes, and refuses to merge). Both installed
+exes pass `--selftest`. A standard-user `--capture-probe` reached the elevated
+app through the junction in 267 ms.
+
+Isolated GC harness (real `src/ScreenCapture.cs`, no windows), captures 1.2 s
+apart, in-process GC events:
+
+| Variant | Gen2 collections | Median capture |
+|---|---:|---:|
+| Old: new frozen desktop bitmap per capture | 6 of 6 | 60 ms |
+| Old code with our `AddMemoryPressure` removed | 5 of 6 (9 of 10 in a second run) | 55 ms |
+| One reused `InteropBitmap`, re-blit + `Invalidate()` | 0 of 6 | 57 ms |
+| Reused bitmap + owned 1600x900 copy + PNG encode | 1 of 6 | 81 ms |
+
+Offscreen soak, 30 full-size cycles (capture, 5760x1080 selector shown far
+off screen, accept, copy, PNG): private memory flat at 70 to 93 MB and handles
+flat on both old and new paths, so the snip path does not leak. Full
+collections fell from 39 to 15; none remain between the hotkey and the
+selector (the hotkey suite asserts it), and the rest follow the selection copy.
+
+Live, PID 17444: memory priority 5, I/O priority 2, hard minimum 199 MB
+(`flags=0x9`). Warm-up after start took 4 s, against 21 s for the same build an
+hour earlier with the task's low priorities: one observation each, not a
+benchmark. With low priorities the first build's working set fell from 151 to
+55 MB within four minutes despite the 199 MB minimum; with normal priorities it
+was 136 MB three minutes after start.
+
+`EmptyWorkingSet` ignores a hard minimum (tested on a throwaway process: 354 MB
+to 1 MB), while ordinary trimming left a pinned 354 MB working set alone for 90
+s. No memory-cleaner process, service or task was found, and a two-minute
+watch of every process saw no system-wide emptying.
+
+## How to judge it in real use
+
+The deciding number is the first snip after idle. In
+`%APPDATA%\WinSnipper\session.log`, compare snips that come 15 to 60 minutes
+after the previous snip or editor open against the table below (before the
+fix). The target is close to the under-2-minute row. Each timed line now
+also carries `ws=` and `private=`; the startup line carries the priorities and
+the next line the residency result.
+
+## Unknowns
+
+Whether the cold bucket now matches the warm one over days of real work (only
+real use can show it); whether anything on this PC empties working sets, which
+would bypass the pin; what made the old process reach 443 MB private (the snip
+path does not leak; editor, recording, OCR or history remain candidates, and
+the new memory fields will point at them); GPU contention during first render.
+
+## Diagnosis evidence
 
 ### Fast when warm, slow when cold
 
-All `session.log` screenshots since the October 13 fix build (301), bucketed by
-time since the previous snip or editor open in the same process:
+All `session.log` screenshots from the October 13 fix build to this diagnosis
+(301), bucketed by time since the previous snip or editor open in the same process:
 
 | Idle before the snip | n | Median | p90 | Over 1 s |
 |---|---:|---:|---:|---:|
@@ -43,127 +101,35 @@ time since the previous snip or editor open in the same process:
 | Over 60 min | 42 | 615 ms | 3,216 ms | 29% |
 | First after app start | 13 | 453 ms | 796 ms | 0% |
 
-The startup warm-up works (first snip after start is fine); it cannot help an
-hour later because the memory it warmed has been evicted.
+Editor opens by time since the previous editor open: under 15 min, p90 129 ms
+(n=51); 15 min to 3 h, p90 2,400 ms (n=25); over 3 h or first, p90 7,662 ms
+(n=23). These exclude the old save wait. Worst snips: 66.9 s on Oct 29 02:35
+(31.1 s of GC pause, hidden before it rendered) and 36.0 s on Oct 25 02:39
+(27.3 s before the app saw the key).
 
-Editor opens, by time since the previous editor open: under 15 min, median 86 ms
-and p90 129 ms (n=51); 15 min to 3 h, p90 2,400 ms (n=25); over 3 h or first,
-p90 7,662 ms (n=23). Worst today: 11,570 ms at 16:07. These exclude the save
-wait described below, so real editor delays can be longer.
+### Every stage stalled
 
-Worst snips: 66.9 s on Oct 29 02:35 (31.1 s of GC pause, hidden before it ever
-rendered) and 36.0 s on Oct 25 02:39 (27.3 s before the app even saw the key).
+The 33 snips over one second spent their 327 s (including key-to-handler
+delay) like this: key event to handler 23%, UI thread pickup 18%, GC pause 23%,
+screen copy excluding GC 13%, window preparation 5%, first render 15%, capture
+worker wake-up 2%. Microsecond handoffs taking seconds means memory being read
+back from disk, not a slow algorithm. 291 of the 301 snips contained a gen2
+collection.
 
-### Every stage stalls, not one
+### The machine at diagnosis
 
-The 33 snips over one second spent their 327 s like this, including the delay
-between the key event and the application handler:
+47.9 GB RAM, 64.2 GB committed of an 85.8 GB limit, 6.5 GB available, pagefile
+on `C:` at 11.2 GB used (peak 16.6 GB), 320 to 490 pages read per second, CPU 33
+to 59%, 128 `node` processes holding 9.0 GB, about ten `claude` processes at
+roughly 0.8 GB each, SysMain disabled. `C:` is a Kingston A400 SATA SSD (about
+1 ms per I/O); `B:` a Toshiba HDWD130 3 TB HDD; `D:` a Seagate ST8000VN004 8 TB
+HDD that was idle with the 20-minute spin-down. The old process (PID 55052, 46 h,
+54 snips, 17 editors, one recording) held 443.5 MB private and 195.5 MB working
+set with 87.8 s of total CPU: idle CPU was never the problem.
 
-| Stage | Share |
-|---|---:|
-| Key event to handler (`input-age`) | 23% |
-| UI thread picks up the request | 18% |
-| Garbage collection pause | 23% |
-| Screen copy itself, excluding GC | 13% |
-| Window preparation | 5% |
-| First render | 15% |
-| Capture worker wake-up | 2% |
-
-Code that normally takes microseconds (a thread handoff) took seconds. That
-pattern means memory being read back from disk, not a slow algorithm.
-
-### Every screenshot forces a full collection
-
-291 of the 301 traced snips contain a gen2 collection. Isolated harness
-(scratch project linking the real `src/ScreenCapture.cs`, no windows, no input,
-nothing saved), in-process GC events, captures 1.2 s apart:
-
-| Variant | Gen2 collections | Median capture |
-|---|---:|---:|
-| Shipped: new frozen desktop bitmap per capture | 6 of 6 | 60 ms |
-| Same code with our `AddMemoryPressure` removed | 5 of 6 (9 of 10 in a second run) | 55 ms |
-| One reused `InteropBitmap`, re-blit + `Invalidate()` | 0 of 6 | 57 ms |
-| Reused bitmap + owned 1600x900 crop copy + PNG encode | 1 of 6 | 81 ms |
-
-All were background gen2 GCs with reason "induced, not forced". Warm, their
-pause is about a millisecond. With the heap paged out they paused 2 to 31 s in
-real use, and the concurrent marking competes with the overlay for page-ins.
-Removing our pressure line alone is not a fix, and it would let 25 MB sections
-pile up until a natural collection. The fix is one reused capture surface plus
-an owned copy of the selected region; that changes the "never return an
-unfrozen capture" invariant in `CLAUDE.md` deliberately.
-
-### The machine
-
-Sampled 16:10 to 16:25: 47.9 GB RAM, 64.2 GB committed of an 85.8 GB limit,
-6.5 GB available, pagefile on `C:` at 11.2 GB used (peak 16.6 GB), 320 to 490
-pages read per second, CPU 33 to 59%. 128 `node` processes hold 9.0 GB private;
-about ten `claude` processes hold roughly 0.8 GB each. SysMain is disabled.
-
-| Drive | Hardware | Role | Measured |
-|---|---|---|---|
-| `C:` | Kingston A400 SATA SSD | OS, .NET/WPF runtime, pagefile | about 1 ms per I/O |
-| `B:` | Toshiba HDWD130 3 TB HDD | `dist` exe and all of `B:\Coding` | 92 to 175 ms per I/O, queue 9 to 26 |
-| `D:` | Seagate ST8000VN004 8 TB HDD | `SaveDir` = `D:\Pictures\WinSnipper` | idle, 0 transfers in 12 s |
-
-Power plan: High performance, hard disks turned off after 1,200 s (20 min).
-
-How much of the reload comes from the exe on `B:` versus the pagefile on `C:`
-was not measured; that needs an elevated ETW trace or a run from the SSD.
-
-### After the selection
-
-`SnipManager` calls `NextSnipPath()` on the UI thread, which runs `File.Exists`
-on `D:`, and only then starts `Util.SetClipboardAsync`. If `D:` has spun down,
-the clipboard and thumbnail wait for spin-up, so an immediate paste can still
-get the previous clipboard. `FloatingThumb.OpenEditor` awaits the PNG save (up
-to 10 s) before creating the editor, although it already holds the image. None
-of this is in the trace, which ends at the overlay's first render.
-
-### Footprint
-
-PID 55052 after 46 h, 54 snips, 17 editors and one recording: 443.5 MB private,
-195.5 MB working set (peak 295.7 MB), 847 handles, 33 threads, 87.8 s total CPU.
-Idle CPU is negligible; WinSnipper is not what slows the PC. Earlier
-observations were 130 to 140 MB private after a few snips. What grew is unknown:
-the app runs elevated, so a non-elevated shell cannot attach a dump or counters.
-
-While the process is stalled, its low-level keyboard hook still sits in front of
+While the process stalls, its low-level keyboard hook still sits in front of
 every keystroke on the machine, so typing elsewhere can be held for up to the
-system hook timeout per key. One trace shows the hook receiving a key 4.3 s late.
-How often this was noticeable is unknown.
+system hook timeout per key. One trace showed the hook receiving a key 4.3 s late.
 
-## Rewrite?
-
-Not now. The language does not make the warm path slow; it is already 153 ms.
-The cold path is slow because of how much memory has to come back and from
-where. A native rewrite would shrink that and remove the collector, but it
-would run from the same saturated `B:` drive and save to the same sleeping `D:`
-drive, and it costs weeks while re-solving DPI, multi-monitor, recording and
-capture-default work that already functions. Fix the identified causes first and
-measure. If the cold bucket stays bad, rebuild only the always-running part
-(hook, capture, selection, clipboard, thumbnail) natively and keep the editor,
-recorder and trim window.
-
-## Recommended order
-
-1. Owner decisions, environment: run the installed copy from the SSD instead of
-   `B:\Coding\WinSnipper\dist` (installer change, elevated task update, app
-   restart), and either save to an SSD folder or stop hard disks sleeping
-   (`powercfg /change disk-timeout-ac 0`, a system setting).
-2. Code: reuse one capture surface so screenshots stop forcing collections;
-   start the clipboard copy before any disk access and keep disk I/O off the UI
-   thread; let the editor open from memory without waiting for the save; set a
-   hard minimum working set sized from the measured hot set
-   (`SetProcessWorkingSetSizeEx` with `QUOTA_LIMITS_HARDWS_MIN_ENABLE`); find
-   the private-memory growth. Add post-selection clipboard/save markers.
-3. Accept on real use, not warm benchmarks: the 15 to 60 minute bucket above
-   should approach the under-2-minute bucket (p90 near 250 ms, at most a few
-   percent over 1 s) over several days of normal work.
-4. Only if step 3 fails: native always-running core.
-
-## Unknowns
-
-The split between `B:` reads and pagefile reads; whether pinning the working set
-holds under this machine's peak pressure; GPU contention during first render;
-what makes up the 443 MB; how often `D:` is actually asleep at a snip.
+`B:` remains saturated for everything else stored there; that is outside this
+app's scope.

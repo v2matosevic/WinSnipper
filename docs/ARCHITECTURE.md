@@ -23,10 +23,11 @@ Windows default capture links enter the same manager queues through
 | File | Responsibility |
 |---|---|
 | `KeyboardHook.cs` | `WH_KEYBOARD_LL` hook **on its own dedicated thread with its own message pump** — Windows delivers the callback on the installing thread, so this must never be the UI thread (see decisions). Sees the configured combos (snip + record) before the OS hotkey, swallows them, sends a dummy key so the Start menu doesn't open on Win-up. Rejects keys that match neither hotkey before reading modifier state. Also exposes `CaptureInterceptor` so the settings window can record a new hotkey — including Win-combos; that callback now runs on the hook thread. |
-| `ScreenCapture.cs` | Blits the whole virtual screen (all monitors) into a `CreateFileMapping` section through a `CreateDIBSection` bitmap, then hands that same memory to WPF via `Imaging.CreateBitmapSourceFromMemorySection` — the pixels are never copied. A `ConditionalWeakTable` keeps each section's handle alive exactly as long as its bitmap, with `GC.AddMemoryPressure` so the collector can see memory it does not own. |
-| `CaptureWorker.cs`, `HotkeyDispatch.cs` | Dedicated workers with bounded queues. Native screenshot capture and startup capture warmup run on an STA worker; subscribers leave the native keyboard callback through a separate handoff worker. Neither worker needs the shared thread pool to dequeue work. Captured pixels are frozen before returning to WPF. |
-| `Responsiveness.cs` | Reference-counted process-priority boost for the length of a capture, with its own expiry so an overlay left open on an unattended desk cannot pin the process at High. |
-| `Warmup.cs` | Runs the whole capture → overlay → crop → encode → render path once at startup, at idle, showing nothing and writing nothing, so the first hotkey press is not the one that pays for it. |
+| `ScreenCapture.cs` | Selectors: `BlitShared` blits the whole virtual screen (all monitors) into the session's one `CreateFileMapping` section through a `CreateDIBSection` bitmap; `PresentShared` shows that memory through one UI-thread `InteropBitmap`, invalidated per capture, so the pixels are never copied and no new desktop-sized WPF bitmap (and its forced full GC) is created per snip. The section is replaced only when the desktop size changes; a `ConditionalWeakTable` keeps a replaced section alive while its bitmap lives. `CopyRegion` gives each selection an owned frozen copy. `CaptureVirtualScreen` is the standalone frozen capture for the self-test and benchmarks. |
+| `CaptureWorker.cs`, `HotkeyDispatch.cs` | Dedicated workers with bounded queues. The screenshot blit and startup warmup run on an STA worker (`CaptureWorker<T>`); `CaptureWorker.CaptureAsync` then presents the shared bitmap on the UI thread. Subscribers leave the native keyboard callback through a separate handoff worker. Neither worker needs the shared thread pool to dequeue work. |
+| `Responsiveness.cs` | Startup normalizes CPU class, memory priority and I/O priority (the keep-alive task launches at Below Normal, memory priority 2 and Low I/O). Reference-counted process-priority boost for the length of a capture, with its own expiry so an overlay left open on an unattended desk cannot pin the process at High. |
+| `Residency.cs` | After warm-up, a hard minimum working set (WS + 48 MB, 128 to 320 MB) so Windows does not trim the warm path of an idle tray app. Logged in `session.log`. `EmptyWorkingSet` callers still bypass it. |
+| `Warmup.cs` | Runs the whole capture → overlay → crop → encode → render path once at startup, at idle, showing nothing and writing nothing, so the first hotkey press is not the one that pays for it. It also creates the shared capture surface, so its one-time collection happens here. |
 | `SnippingTool.cs` | Manages `PrintScreenKeyForSnippingTool`: 1 when WinSnipper is the selected Windows capture default for on-demand launch; 0 for the earlier resident hook-only mode. Persists ownership/original state before writes and preserves outside changes on restoration. |
 | `CaptureActivation.cs` | Bounded screenshot/recording/probe intents over a message-only HWND. Verifies executable/user SID, admits one UIPI message, suppresses duplicate retries and transfers foreground permission. Cold startup validates the existing owner task before running it. |
 | `WindowsCaptureIntegration.cs`, `CaptureDefaultWatcher.cs` | Per-user capability/ProgID registration and URI validation; Windows owns the protected default choice. Read-only registry notifications update PrintScreen policy after owner selection. [Integration](WINDOWS-CAPTURE-DEFAULT.md). |
@@ -140,11 +141,22 @@ survive the reboot and suppress the next logon's start.
   it is disabled for resident-only interception when another handler is default.
   Preserve the original and last-applied values. Never forge UserChoice/hash.
   Alt+PrintScreen and unrelated Windows capture APIs are left alone.
-- **Capture pixels are never copied.** The desktop is blitted into a shared
-  section that WPF maps and reads in place. The obvious alternative — blit into
-  a GDI bitmap, hand the pixels to `BitmapSource.Create` — copies the entire
-  desktop into a fresh LOH array on every snip (~24 MB at 5760 × 1080), which
-  is the cost you can least afford on the machine that already feels slow.
+- **Selector pixels are never copied; only the selection is.** The desktop is
+  blitted into a shared section that WPF maps and reads in place. The obvious
+  alternative — blit into a GDI bitmap, hand the pixels to `BitmapSource.Create`
+  — copies the entire desktop into a fresh LOH array on every snip (~24 MB at
+  5760 × 1080). Since 2026-10-29 the section and its WPF bitmap are reused for
+  the session as well: each new desktop-sized WPF bitmap made WPF force a full
+  GC, which on a trimmed process paged the whole heap back in at the hotkey.
+  [Evidence](PERFORMANCE-2026-10-29.md).
+- **2026-10-29 cold path:** the installed copy lives on the SSD
+  (`%LOCALAPPDATA%\Programs\WinSnipper`) with `dist` as a directory junction,
+  because `B:` is a saturated hard drive and an idle app reloads evicted code
+  from its exe. Activation compares kernel image paths on both sides
+  (`QueryFullProcessImageName`), which resolve the junction alike. The snip
+  path copies to the clipboard before any disk access; the save worker settles
+  name clashes; the editor opens from memory and its writes wait for a pending
+  first save.
 - **DPI**: the process is Per-Monitor-V2 (`app.manifest`). Capture and
   selection run in physical pixels; WPF surfaces are mapped 1 DIP = 1 px and
   scaled visually, so output never depends on display scaling.

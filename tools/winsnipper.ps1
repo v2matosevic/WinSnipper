@@ -249,7 +249,8 @@ function Invoke-Stop {
             # This targets the exact verified action/PID and grants no new rights.
             $instance.Stop()
         } else { Stop-Process -Id $proc.Id -Force }
-        for ($attempt = 0; $attempt -lt 50; $attempt++) {
+        # A task stop can take several seconds to terminate the process.
+        for ($attempt = 0; $attempt -lt 150; $attempt++) {
             $remaining = Get-AppProcess
             if (-not $remaining) { break }
             if ($remaining.Id -ne $proc.Id) { throw 'A different WinSnipper instance started during stop.' }
