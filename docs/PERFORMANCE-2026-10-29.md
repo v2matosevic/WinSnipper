@@ -91,6 +91,33 @@ much faster now". PID 17444's log for that session:
 
 Ten snips cannot show the long tail. The multi-day comparison below still decides.
 
+## Regression after install: the selector showed an old frame
+
+Reported the same evening: on the middle (primary) monitor the selector went
+black, while the saved snips had the right pixels (checked: the 18:11 to 18:14
+files are not black, and a GDI grab of all three monitors was normal).
+
+Cause, from WPF's source and reproduced on the hardware path:
+`InteropBitmap.Invalidate()` sends its update only to composition channels that
+currently hold the bitmap. `ClearScreenshot` set the hidden selector's `Source`
+to null, which took the shared bitmap off the channel, so the next capture's
+invalidation was dropped. When the selector attached the bitmap again, the GPU
+copy cached on its wrapper still matched the old uniqueness token and was shown
+as is: a frame from an earlier capture. The save path reads the section
+directly, so files were right. Why that old frame had a black middle monitor is
+not proven; VALORANT was running full screen there, so a capture during a game
+transition is the likely source.
+
+Fix: hidden selectors keep the surface attached, and a closing reusable
+selector calls `ScreenCapture.RetireShared`, so the next capture builds a new
+bitmap rather than trusting a detached one. `test-hotkey.ps1` now renders the
+real selector in a DWM-cloaked window (hardware drawn, invisible, never
+activated) and reads it back with `PrintWindow(PW_RENDERFULLCONTENT)`. On the
+old code it failed with "selector showed red instead of this capture's blue";
+with the retire step removed, the replaced-selector case failed ("green instead
+of red"); with the fix all pass. A window far off screen is not rendered at
+all (it read back black), which is why the existing off-screen checks missed it.
+
 ## How to judge it in real use
 
 The deciding number is the first snip after idle. In

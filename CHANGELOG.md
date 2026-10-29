@@ -8,6 +8,10 @@ Fix the slow first screenshot after the app has been idle on a busy PC.
 - Reuse one capture surface for the session. Each new desktop-sized WPF bitmap
   forced a full garbage collection on every screenshot, which dragged the whole
   heap back from disk when Windows had trimmed the app. Selections are copied out.
+- Fix the selector showing an old frame (a black monitor) instead of the
+  current screen. The hidden selector released the reused bitmap, so WPF never
+  heard about the next capture and showed its old GPU copy; saved snips were
+  correct. Hidden selectors now keep it attached; a closed one retires it.
 - Normalize memory and I/O priority at startup, not only the CPU class. The
   keep-alive task launched the app with memory priority 2 and Low I/O priority,
   so Windows reclaimed its memory first and queued its page-ins behind other

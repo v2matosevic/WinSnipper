@@ -1,4 +1,5 @@
-<# Headless regression checks. No installed hooks, synthetic input, visible windows or clipboard writes. #>
+<# Headless regression checks. No installed hooks, synthetic input, visible windows or clipboard writes.
+   The selector render check draws real windows that DWM cloaks: never on screen, never activated. #>
 [CmdletBinding()]
 param([string]$AppDll)
 $ErrorActionPreference = 'Stop'
@@ -212,6 +213,7 @@ static class Checks
         CheckCaptureWorker();
         CheckCaptureFailure();
         CheckActualCapture();
+        CheckSelectorShowsCurrentPixels();
         ((IDisposable)dispatch).Dispose();
         app.Shutdown();
     }
@@ -316,10 +318,10 @@ static class Checks
             if (accepted) Assert(overlay.SelectionPx == new Int32Rect(10, 20, 40, 30), "reused selection pixels changed");
             Call(overlay, "ClearScreenshot");
             var image = (System.Windows.Controls.Image)typeof(SnipOverlay).GetField("ScreenImage", Instance)!.GetValue(overlay)!;
-            Assert(image.Source is null && overlay.SelectionPx is null, "idle overlay retained screenshot/selection");
+            Assert(ReferenceEquals(image.Source, bitmap) && overlay.SelectionPx is null, "idle overlay detached its capture surface or kept its selection");
         }
         overlay.Close();
-        Console.WriteLine("PASS: offscreen modal accept/cancel/accept reuse same HWND; every show traced; idle pixels cleared; trace handlers detached");
+        Console.WriteLine("PASS: offscreen modal accept/cancel/accept reuse same HWND; every show traced; idle selection cleared with surface attached; trace handlers detached");
     }
 
     static void CheckCaptureFailure()
@@ -386,6 +388,141 @@ static class Checks
         owned.CopyPixels(after, side * 4, 0);
         Assert(after.All(b => b == 255), "selection copy still reads the source's later pixels");
         Console.WriteLine("PASS: selection copies are frozen and keep their pixels after the surface changes");
+    }
+
+    [DllImport("kernel32.dll")]
+    static extern IntPtr MapViewOfFile(SafeHandle section, uint access, uint offsetHigh, uint offsetLow, UIntPtr bytes);
+    [DllImport("kernel32.dll")]
+    static extern bool UnmapViewOfFile(IntPtr view);
+    [DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+    [DllImport("dwmapi.dll")]
+    static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
+    [DllImport("user32.dll")]
+    static extern bool PrintWindow(IntPtr hwnd, IntPtr dc, uint flags);
+    [DllImport("user32.dll")]
+    static extern IntPtr GetDC(IntPtr hwnd);
+    [DllImport("user32.dll")]
+    static extern int ReleaseDC(IntPtr hwnd, IntPtr dc);
+    [DllImport("gdi32.dll")]
+    static extern IntPtr CreateCompatibleDC(IntPtr dc);
+    [DllImport("gdi32.dll")]
+    static extern IntPtr CreateCompatibleBitmap(IntPtr dc, int width, int height);
+    [DllImport("gdi32.dll")]
+    static extern IntPtr SelectObject(IntPtr dc, IntPtr gdiObject);
+    [DllImport("gdi32.dll")]
+    static extern bool DeleteObject(IntPtr gdiObject);
+    [DllImport("gdi32.dll")]
+    static extern bool DeleteDC(IntPtr dc);
+    [DllImport("gdi32.dll")]
+    static extern uint GetPixel(IntPtr dc, int x, int y);
+
+    static void CheckSelectorShowsCurrentPixels()
+    {
+        // The selector must show this capture, not the GPU copy of an earlier
+        // one: InteropBitmap.Invalidate() only reaches a bitmap that some
+        // visual still holds. Only a rendered window shows that (off-screen
+        // windows are not rendered), so this one is real and hardware-drawn
+        // but cloaked by DWM: nothing appears, no activation, no input.
+        const int W = 160, H = 100;
+        var bounds = new Int32Rect(100, 100, W, H);
+        var section = (SafeHandle)CallStatic(typeof(ScreenCapture), "CreateFileMapping",
+            new IntPtr(-1), IntPtr.Zero, 0x04u, 0u, (uint)(W * H * 4), IntPtr.Zero)!;
+        IntPtr view = MapViewOfFile(section, 0x2 /* FILE_MAP_WRITE */, 0, 0, UIntPtr.Zero);
+        Assert(view != IntPtr.Zero, "test surface could not be mapped");
+        var frameType = typeof(ScreenCapture).GetNestedType("SharedFrame", BindingFlags.NonPublic)!;
+        var frame = Activator.CreateInstance(frameType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null, new object[] { section, bounds }, null)!;
+
+        SnipOverlay Prepare()
+        {
+            var overlay = (SnipOverlay)CallStatic(typeof(SnipOverlay), "PrepareScreenshot")!;
+            overlay.ShowActivated = false;
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(overlay).Handle;
+            int on = 1;
+            Assert(DwmSetWindowAttribute(hwnd, 13 /* DWMWA_CLOAK */, ref on, 4) == 0
+                && DwmGetWindowAttribute(hwnd, 14 /* DWMWA_CLOAKED */, out int cloaked, 4) == 0 && cloaked != 0,
+                "could not cloak the test selector; nothing was shown");
+            return overlay;
+        }
+
+        string Shown(SnipOverlay overlay, string name, int bgrx)
+        {
+            Marshal.Copy(Enumerable.Repeat(bgrx, W * H).ToArray(), 0, view, W * H); // the worker's blit
+            var shot = (BitmapSource)CallStatic(typeof(ScreenCapture), "PresentShared", frame)!;
+            Call(overlay, "SetScreenshot", shot, bounds);
+            overlay.Show();
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(overlay).Handle;
+            Assert(DwmGetWindowAttribute(hwnd, 14, out int cloaked, 4) == 0 && cloaked != 0, "test selector lost its cloak");
+            var shown = Stopwatch.StartNew();
+            PumpUntil(() => shown.ElapsedMilliseconds >= 400);
+            uint pixel = SampleCenter(hwnd);
+            Call(overlay, "Finish", false); // hidden, as after a selection
+            Call(overlay, "ClearScreenshot");
+            var hidden = Stopwatch.StartNew();
+            PumpUntil(() => hidden.ElapsedMilliseconds >= 150);
+            int r = (int)(pixel & 0xFF), g = (int)((pixel >> 8) & 0xFF), b = (int)((pixel >> 16) & 0xFF);
+            string seen = (r > 100, g > 100, b > 100, r < 50 || g < 50 || b < 50) switch
+            {
+                (true, false, false, true) => "red",
+                (false, true, false, true) => "green",
+                (false, false, true, true) => "blue",
+                _ => $"rgb({r},{g},{b})",
+            };
+            Assert(seen == name, $"selector showed {seen} instead of this capture's {name}");
+            return seen;
+        }
+
+        try
+        {
+            var first = Prepare();
+            Shown(first, "red", 0x00FF0000);
+            Shown(first, "blue", 0x000000FF);
+            Shown(first, "green", 0x0000FF00);
+            // A selector window that is destroyed takes the bitmap off the
+            // render thread; its successor must not inherit the old GPU copy.
+            // Another window keeps the GPU device (and that copy) alive, as
+            // the app's other windows do; without one, WPF drops the device.
+            var witness = new Window { WindowStyle = WindowStyle.None, ShowInTaskbar = false, ShowActivated = false,
+                WindowStartupLocation = WindowStartupLocation.Manual, Left = 100, Top = 100, Width = 40, Height = 40 };
+            var witnessHwnd = new System.Windows.Interop.WindowInteropHelper(witness).EnsureHandle();
+            int cloak = 1;
+            Assert(DwmSetWindowAttribute(witnessHwnd, 13, ref cloak, 4) == 0
+                && DwmGetWindowAttribute(witnessHwnd, 14, out int witnessCloaked, 4) == 0 && witnessCloaked != 0,
+                "could not cloak the witness window; nothing was shown");
+            witness.Show();
+            try
+            {
+                first.Close();
+                var second = Prepare();
+                Shown(second, "red", 0x00FF0000);
+                Shown(second, "blue", 0x000000FF);
+                second.Close();
+            }
+            finally { witness.Close(); }
+        }
+        finally { UnmapViewOfFile(view); }
+        Console.WriteLine("PASS: a hidden, reshown and replaced selector each show the current capture (cloaked hardware render)");
+    }
+
+    static uint SampleCenter(IntPtr hwnd)
+    {
+        Assert(GetWindowRect(hwnd, out var rect), "test selector has no bounds");
+        int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
+        IntPtr screen = GetDC(IntPtr.Zero), memory = CreateCompatibleDC(screen), target = CreateCompatibleBitmap(screen, width, height);
+        IntPtr previous = SelectObject(memory, target);
+        try
+        {
+            Assert(PrintWindow(hwnd, memory, 2 /* PW_RENDERFULLCONTENT */), "could not read the test selector's rendered pixels");
+            return GetPixel(memory, width / 2, height / 2);
+        }
+        finally
+        {
+            SelectObject(memory, previous);
+            DeleteObject(target);
+            DeleteDC(memory);
+            ReleaseDC(IntPtr.Zero, screen);
+        }
     }
 
     static byte[] Render(Window window)

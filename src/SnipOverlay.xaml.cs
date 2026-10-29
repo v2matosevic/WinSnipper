@@ -96,6 +96,7 @@ public partial class SnipOverlay : Window
             IsClosed = true;
             CancelPendingVisuals();
             if (ReferenceEquals(_visibleOverlay, this)) _visibleOverlay = null;
+            if (_reusable) ScreenCapture.RetireShared(ScreenImage.Source);
             ScreenImage.Source = null;
         };
         IsVisibleChanged += (_, _) =>
@@ -211,7 +212,10 @@ public partial class SnipOverlay : Window
     {
         CancelPendingVisuals();
         if (IsVisible) Hide();
-        ScreenImage.Source = null;
+        // Keep the session capture surface attached: the next capture's
+        // Invalidate() only reaches the render thread while a visual holds it,
+        // and a detached one reshows its GPU copy of an older screen (black
+        // monitors, 2026-10-29). It is one shared bitmap, so this costs nothing.
         _windows = _screens = null;
         _hover = SelectionPx = null;
         _dragging = false;

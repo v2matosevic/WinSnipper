@@ -75,6 +75,11 @@ public static class ScreenCapture
     /// UI side: the session bitmap over the frame's section, invalidated so
     /// WPF reads the new pixels. Unfrozen and owned by the calling (UI)
     /// thread; anything that outlives the selector takes <see cref="CopyRegion"/>.
+    ///
+    /// Invalidate() only reaches the render thread while some visual holds
+    /// the bitmap. One that nothing holds keeps its GPU copy of an earlier
+    /// capture and shows that when it is attached again, so the selectors
+    /// keep it attached while hidden and retire it when they close.
     /// </summary>
     internal static BitmapSource PresentShared(SharedFrame frame)
     {
@@ -92,6 +97,18 @@ public static class ScreenCapture
         }
         _sharedShown = frame;
         return _sharedBitmap;
+    }
+
+    /// <summary>
+    /// A selector that may hold the session bitmap is closing. If it was the
+    /// last holder, the render thread no longer hears invalidations, so the
+    /// next capture builds a new bitmap over the same section (one full
+    /// collection, only after a selector window is destroyed).
+    /// </summary>
+    internal static void RetireShared(ImageSource? bitmap)
+    {
+        if (bitmap is not null && ReferenceEquals(bitmap, _sharedBitmap))
+            _sharedBitmap = null;
     }
 
     /// <summary>

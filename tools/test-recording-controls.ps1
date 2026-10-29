@@ -153,7 +153,7 @@ static class Checks
         Check(!Field<bool>(selector,"_visualsQueued") && Named<TextBlock>(selector,"SizeText").Text=="599 × 359","render uses latest physical coordinates and detaches callback");
         Render(root,"recording-selection.png",1280,720);
         Call(selector,"QueueVisuals");Call(selector,"ClearScreenshot");
-        Check(!Field<bool>(selector,"_visualsQueued") && Named<System.Windows.Controls.Image>(selector,"ScreenImage").Source is null,"selector cleanup releases pixels and pending render callback");
+        Check(!Field<bool>(selector,"_visualsQueued") && Named<System.Windows.Controls.Image>(selector,"ScreenImage").Source is not null,"selector cleanup releases pending render callback and keeps the capture surface attached");
         selector.Close();
     }
     static void EmergencyKeys()
@@ -203,7 +203,7 @@ static class Checks
         pending.SetResult((image,new Int32Rect(0,0,1280,720)));PumpUntil(()=>first.IsCompleted);first.GetAwaiter().GetResult();
         Check(selections==1&&error?.Contains("too small")==true&&!manager.IsRecording&&!SnipOverlay.IsOpen,"accepted coordinates survive pixel cleanup; invalid region reports error and releases selector");
         var prepared=Field<SnipOverlay>(manager,"_prepared");
-        Check(!prepared.AllowsTransparency&&Named<System.Windows.Controls.Image>(prepared,"ScreenImage").Source is null,"cached recording selector is opaque and retains no screenshot while idle");
+        Check(!prepared.AllowsTransparency&&ReferenceEquals(Named<System.Windows.Controls.Image>(prepared,"ScreenImage").Source,image),"cached recording selector is opaque and keeps the capture surface attached while idle");
         prepared.Close();
     }
     static void RecorderReadiness()

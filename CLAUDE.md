@@ -81,7 +81,10 @@ integration from the WinSnipper version alone.
   new desktop-sized WPF bitmap per snip: WPF answers each with a full GC. Never
   blit while a selector shows the surface. Anything that outlives the selector
   takes `ScreenCapture.CopyRegion`; a frozen `CroppedBitmap` over the surface
-  would freeze the surface itself.
+  would freeze the surface itself. Hidden selectors keep the surface as their
+  `Source`: `Invalidate()` only reaches a bitmap some visual holds, and a
+  detached one reshows its GPU copy of an older screen (the black-monitor bug).
+  Off-screen windows are not rendered; `test-hotkey.ps1` checks this cloaked.
 - In the snip path, start the clipboard copy before any disk access and keep
   disk I/O off the UI thread. The save folder can be a sleeping hard drive.
 - Screenshot key routing may write
@@ -100,8 +103,8 @@ integration from the WinSnipper version alone.
 - Never block on WinRT async from the UI thread; await it.
 - Keep screenshot capture on `CaptureWorker`, including startup warmup.
   The reusable screenshot selector finishes with `Hide`, never `DialogResult`
-  (which destroys its HWND). Clear its screenshot and refresh selection/monitor
-  state between shows. `IsOpen` includes the pending capture reservation, not
+  (which destroys its HWND). Refresh selection/monitor state between shows,
+  but keep the surface attached. `IsOpen` includes the pending capture reservation, not
   the idle hidden HWND. Recording uses the same opaque cached-selector lifecycle,
   showing the shared surface only while selecting. Coalesce pointer drawing to one frame.
 

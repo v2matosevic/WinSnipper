@@ -80,7 +80,7 @@ public sealed class RecordingManager
             overlay.SetRecordingSelection();
             trace.TrackWindow(overlay);
             bool ok = _select(overlay);
-            var selection = overlay.SelectionPx; // ClearScreenshot releases the cached selection as well as its pixels.
+            var selection = overlay.SelectionPx; // ClearScreenshot releases the cached selection.
             overlay.ClearScreenshot();
             FloatingThumb.SetAllVisible(true);
 
