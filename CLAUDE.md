@@ -37,6 +37,9 @@ Windows capture default candidate, security boundary and owner selection:
 [docs/WINDOWS-CAPTURE-DEFAULT.md](docs/WINDOWS-CAPTURE-DEFAULT.md).
 Heavy-load responsiveness implementation (`88824f7`) and verification:
 [docs/PERFORMANCE-2026-10-13.md](docs/PERFORMANCE-2026-10-13.md).
+Read before any performance work: the remaining lag is the cold path (first
+snip after idle), not warm speed; warm benchmarks do not show it.
+[docs/PERFORMANCE-2026-10-29.md](docs/PERFORMANCE-2026-10-29.md).
 Optional ADE screenshot attachment requires a capture-protocol-v1 receiver;
 see [docs/ADE-INTEGRATION.md](docs/ADE-INTEGRATION.md). Do not infer live
 integration from the WinSnipper version alone.
