@@ -20,8 +20,12 @@ public static class Warmup
     {
         try
         {
+            // This also creates the session's shared capture surface, so its
+            // one-time collection happens here and not on the first snip. A
+            // selector that is already open reads that surface; leave it alone.
+            if (SnipOverlay.IsOpen) return;
             var (shot, bounds) = await CaptureWorker.CaptureAsync();
-            if (Application.Current.Dispatcher.HasShutdownStarted) return;
+            if (Application.Current.Dispatcher.HasShutdownStarted || SnipOverlay.IsOpen) return;
             SnipOverlay.Warm(shot, bounds);
             WarmImagePipeline(shot);
         }
@@ -31,8 +35,9 @@ public static class Warmup
     /// <summary>The same work, letting failures through so --selftest can see them.</summary>
     public static void Prime()
     {
-        var (shot, bounds) = ScreenCapture.CaptureVirtualScreen();
-        SnipOverlay.Warm(shot, bounds);
+        var frame = ScreenCapture.BlitShared();
+        var shot = ScreenCapture.PresentShared(frame);
+        SnipOverlay.Warm(shot, frame.Bounds);
         WarmImagePipeline(shot);
     }
 
@@ -42,8 +47,8 @@ public static class Warmup
         int side = Math.Min(64, Math.Min(shot.PixelWidth, shot.PixelHeight));
         if (side < 1) return;
 
-        var crop = new CroppedBitmap(shot, new Int32Rect(0, 0, side, side));
-        crop.Freeze();
+        // A CroppedBitmap would freeze the shared surface along with itself.
+        var crop = ScreenCapture.CopyRegion(shot, new Int32Rect(0, 0, side, side));
 
         using var ms = new MemoryStream();
         var encoder = new PngBitmapEncoder();

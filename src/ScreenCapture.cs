@@ -26,6 +26,95 @@ public static class ScreenCapture
     /// </summary>
     private static readonly ConditionalWeakTable<BitmapSource, SectionHandle> Sections = new();
 
+    // The interactive selectors reuse one section and one WPF bitmap for the
+    // whole session. WPF answers every new desktop-sized bitmap with a full
+    // garbage collection, and on a machine short of memory that collection
+    // drags the whole heap back from disk at the moment of the hotkey
+    // (docs/PERFORMANCE-2026-10-29.md). Re-blitting and invalidating the same
+    // bitmap costs no collection at all.
+    private static readonly object SharedGate = new();
+    private static SharedFrame? _sharedTarget; // worker side: where the next blit goes
+    private static SharedFrame? _sharedShown;  // UI side: what _sharedBitmap reads
+    private static InteropBitmap? _sharedBitmap;
+
+    /// <summary>The shared section and the desktop bounds its last blit covered.</summary>
+    internal sealed class SharedFrame(SectionHandle section, Int32Rect bounds)
+    {
+        internal SectionHandle Section { get; } = section;
+        internal Int32Rect Bounds { get; } = bounds;
+    }
+
+    /// <summary>
+    /// Worker side of an interactive capture: blits the virtual screen into
+    /// the session's shared section, replacing the section only when the
+    /// desktop size changes. Never call while a selector shows the section.
+    /// </summary>
+    internal static SharedFrame BlitShared()
+    {
+        lock (SharedGate)
+        {
+            var vs = VirtualScreenBounds();
+            var target = _sharedTarget;
+            if (target is null || target.Bounds.Width != vs.Width || target.Bounds.Height != vs.Height)
+            {
+                long bytes = (long)vs.Width * 4 * vs.Height;
+                var section = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE,
+                    (uint)(bytes >> 32), (uint)(bytes & 0xFFFFFFFF), IntPtr.Zero);
+                if (section.IsInvalid)
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                // A replaced section stays alive while a bitmap still reads it.
+                target = new SharedFrame(section, vs);
+            }
+            BlitDesktopInto(target.Section, vs, vs.Width, vs.Height);
+            _sharedTarget = new SharedFrame(target.Section, vs);
+            return _sharedTarget;
+        }
+    }
+
+    /// <summary>
+    /// UI side: the session bitmap over the frame's section, invalidated so
+    /// WPF reads the new pixels. Unfrozen and owned by the calling (UI)
+    /// thread; anything that outlives the selector takes <see cref="CopyRegion"/>.
+    /// </summary>
+    internal static BitmapSource PresentShared(SharedFrame frame)
+    {
+        if (_sharedBitmap is not null && ReferenceEquals(_sharedShown?.Section, frame.Section))
+        {
+            _sharedBitmap.Invalidate();
+        }
+        else
+        {
+            var b = frame.Bounds;
+            var bitmap = (InteropBitmap)Imaging.CreateBitmapSourceFromMemorySection(
+                frame.Section.DangerousGetHandle(), b.Width, b.Height, PixelFormats.Bgr32, b.Width * 4, 0);
+            Sections.AddOrUpdate(bitmap, frame.Section);
+            _sharedBitmap = bitmap;
+        }
+        _sharedShown = frame;
+        return _sharedBitmap;
+    }
+
+    /// <summary>
+    /// An owned, frozen copy of one region. The selector's pixels are
+    /// overwritten by the next capture, so the thumbnail, editor, clipboard
+    /// and PNG all work from this copy instead.
+    /// </summary>
+    internal static BitmapSource CopyRegion(BitmapSource source, Int32Rect region)
+    {
+        int stride = region.Width * ((source.Format.BitsPerPixel + 7) / 8);
+        int size = checked(stride * region.Height);
+        IntPtr buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            source.CopyPixels(region, buffer, size, stride);
+            var copy = BitmapSource.Create(region.Width, region.Height, source.DpiX, source.DpiY,
+                source.Format, source.Palette, buffer, size, stride);
+            copy.Freeze();
+            return copy;
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
     /// <summary>Bounds of the virtual screen (all monitors) in physical pixels.</summary>
     public static Int32Rect VirtualScreenBounds() => new(
         GetSystemMetrics(SM_XVIRTUALSCREEN),
@@ -36,7 +125,9 @@ public static class ScreenCapture
     /// <summary>
     /// Captures the entire virtual screen (all monitors) in physical pixels.
     /// Returns the frozen image plus the virtual-screen bounds in screen pixel
-    /// coordinates.
+    /// coordinates. Standalone captures (self-test, benchmarks) only: each one
+    /// is a new desktop-sized bitmap, which costs a full collection. The
+    /// selectors use <see cref="BlitShared"/> and <see cref="PresentShared"/>.
     ///
     /// The desktop is blitted straight into a shared memory section that WPF
     /// then reads in place, so a capture costs one blit and nothing else. The
@@ -144,7 +235,7 @@ public static class ScreenCapture
     /// it is holding on to. Accounting for it keeps a run of snips from piling
     /// up tens of megabytes apiece before a collection notices.
     /// </summary>
-    private sealed class SectionHandle : SafeHandleZeroOrMinusOneIsInvalid
+    internal sealed class SectionHandle : SafeHandleZeroOrMinusOneIsInvalid
     {
         private long _pressure;
 

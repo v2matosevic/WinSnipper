@@ -2,16 +2,43 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 
 namespace WinSnipper;
 
-/// <summary>One capture at a time, off both WPF and the shared thread pool.</summary>
-internal sealed class CaptureWorker
+/// <summary>The session's screenshot worker and the UI half of each capture.</summary>
+internal static class CaptureWorker
 {
-    private readonly BlockingCollection<(TaskCompletionSource<(BitmapSource, Int32Rect)> Completion, PerformanceTrace? Trace)> _requests = new(1);
-    private readonly Func<(BitmapSource, Int32Rect)> _capture;
+    private static readonly Lazy<CaptureWorker<ScreenCapture.SharedFrame>> Shared = new(() => new(ScreenCapture.BlitShared));
 
-    internal CaptureWorker(Func<(BitmapSource, Int32Rect)> capture)
+    /// <summary>
+    /// Blits on the worker, then presents the session bitmap on the caller's
+    /// (UI) thread. The image is the selector's live view of the shared
+    /// section: show it, then take <see cref="ScreenCapture.CopyRegion"/>.
+    /// </summary>
+    internal static async Task<(BitmapSource, Int32Rect)> CaptureAsync(PerformanceTrace? trace = null)
+    {
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var frame = await Shared.Value.Enqueue(trace);
+        var image = dispatcher.CheckAccess()
+            ? ScreenCapture.PresentShared(frame)
+            : await dispatcher.InvokeAsync(() => ScreenCapture.PresentShared(frame));
+        return (image, frame.Bounds);
+    }
+
+    internal static void Shutdown()
+    {
+        if (Shared.IsValueCreated) Shared.Value.Complete();
+    }
+}
+
+/// <summary>One capture at a time, off both WPF and the shared thread pool.</summary>
+internal sealed class CaptureWorker<T>
+{
+    private readonly BlockingCollection<(TaskCompletionSource<T> Completion, PerformanceTrace? Trace)> _requests = new(1);
+    private readonly Func<T> _capture;
+
+    internal CaptureWorker(Func<T> capture)
     {
         _capture = capture;
         var thread = new Thread(Run) { IsBackground = true, Name = "WinSnipper.Capture" };
@@ -19,16 +46,9 @@ internal sealed class CaptureWorker
         thread.Start();
     }
 
-    private static readonly Lazy<CaptureWorker> Shared = new(() => new(ScreenCapture.CaptureVirtualScreen));
-    internal static Task<(BitmapSource, Int32Rect)> CaptureAsync(PerformanceTrace? trace = null) => Shared.Value.Enqueue(trace);
-    internal static void Shutdown()
+    internal Task<T> Enqueue(PerformanceTrace? trace = null)
     {
-        if (Shared.IsValueCreated) Shared.Value.Complete();
-    }
-
-    internal Task<(BitmapSource, Int32Rect)> Enqueue(PerformanceTrace? trace = null)
-    {
-        var completion = new TaskCompletionSource<(BitmapSource, Int32Rect)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             if (!_requests.TryAdd((completion, trace)))
@@ -44,11 +64,11 @@ internal sealed class CaptureWorker
     }
 
     // A consuming iterator retains its Current while waiting for the next item.
-    // Keep the completed TCS (and its bitmap) off the idle worker's stack instead.
+    // Keep the completed TCS (and its result) off the idle worker's stack instead.
     [MethodImpl(MethodImplOptions.NoInlining)]
     private bool ProcessNext()
     {
-        (TaskCompletionSource<(BitmapSource, Int32Rect)> Completion, PerformanceTrace? Trace) request;
+        (TaskCompletionSource<T> Completion, PerformanceTrace? Trace) request;
         try { request = _requests.Take(); }
         catch (InvalidOperationException) { return false; } // drained after CompleteAdding
         try

@@ -39,6 +39,9 @@ function Write-Ok($msg) { }
 function Write-Warn($msg) { }
 $script:realShortcuts = ${function:Install-Shortcuts}
 $script:realBuild = ${function:Invoke-Build}
+$script:realSsd = ${function:Use-SsdInstall}
+$InstallDir = 'X:\NeverUsedSsd'
+function Use-SsdInstall { $script:events.Add('ssd') }
 
 # Replace all mutation boundaries before invoking any extracted production function.
 function Start-Process { throw 'Unexpected direct process launch' }
@@ -195,5 +198,36 @@ $DistDir=Join-Path $env:TEMP 'WinSnipper-supervision-not-created'
 function dotnet { $script:events.Add('publish'); $global:LASTEXITCODE=0 }
 function Copy-Item { param($Path,$Destination,[switch]$Force) $script:events.Add('copy') }
 & $script:realBuild
-Assert (($script:events -join ',') -eq 'new-key,quit-flag,publish,copy,publish,copy,capture-register,clear-quit') 'Build must publish both flavors before capture registration and preserve stopped state'
-Write-Output 'PASS: build registers capture only after both payloads publish and leaves an originally stopped app stopped'
+Assert (($script:events -join ',') -eq 'new-key,quit-flag,ssd,publish,copy,publish,copy,capture-register,clear-quit') 'Build must move to the SSD install, publish both flavors before capture registration and preserve stopped state'
+Write-Output 'PASS: build moves to the SSD install, registers capture only after both payloads publish and leaves an originally stopped app stopped'
+
+# The real SSD move, with every file operation faked: rename (never delete)
+# the old folder into artifacts, copy its exes, then add the junction.
+$Root = Join-Path $env:TEMP 'WinSnipper-ssd-check-not-created'
+$DistDir = Join-Path $Root 'dist'
+$script:distItem = [pscustomobject]@{ LinkType = $null; PSIsContainer = $true }
+$script:installFiles = @()
+function Get-Item { param($LiteralPath,[switch]$Force,$ErrorAction) if ($LiteralPath -eq $DistDir) { return $script:distItem } }
+function Get-ChildItem { param($LiteralPath,[switch]$File,[switch]$Force,$ErrorAction)
+    if ($LiteralPath -eq $InstallDir) { return $script:installFiles }
+    return @([pscustomobject]@{ FullName = "$LiteralPath\WinSnipper-OCR.exe" }, [pscustomobject]@{ FullName = "$LiteralPath\WinSnipper.exe" })
+}
+function New-Item { param($ItemType,$Path,$Target,[switch]$Force)
+    $script:events.Add($(if ($ItemType -eq 'Junction') { "junction:$Path->$Target" } else { "mkdir:$Path" })) }
+function Move-Item { param($LiteralPath,$Destination) $script:events.Add("move:$LiteralPath->$Destination") }
+function Copy-Item { param($LiteralPath,$Destination) $script:events.Add("copy:$(Split-Path -Leaf $LiteralPath)->$Destination") }
+function Get-Date { param($Format) return '20261029-170000' }
+$script:events.Clear()
+& $script:realSsd
+$backup = Join-Path $Root 'artifacts\dist-before-ssd-20261029-170000'
+Assert (($script:events -join ',') -eq "mkdir:$InstallDir,mkdir:$(Join-Path $Root 'artifacts'),move:$DistDir->$backup,copy:WinSnipper-OCR.exe->$InstallDir,copy:WinSnipper.exe->$InstallDir,junction:$DistDir->$InstallDir") 'SSD move must rename the old dist, copy its exes, then add the junction'
+$script:events.Clear()
+$script:distItem = [pscustomobject]@{ LinkType = 'Junction'; PSIsContainer = $true }
+& $script:realSsd
+Assert ($script:events.Count -eq 0) 'An existing junction was moved again'
+$script:distItem = [pscustomobject]@{ LinkType = $null; PSIsContainer = $true }
+$script:installFiles = @([pscustomobject]@{ FullName = "$InstallDir\other.exe" })
+$rejected = $false
+try { & $script:realSsd } catch { $rejected = $_.Exception.Message -match 'already holds files' }
+Assert ($rejected -and $script:events.Count -eq 0) 'SSD move merged into an occupied install folder'
+Write-Output 'PASS: SSD move renames (never deletes) the old dist, copies the running build, adds the junction once and refuses to merge'

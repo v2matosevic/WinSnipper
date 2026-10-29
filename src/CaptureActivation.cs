@@ -71,6 +71,11 @@ internal sealed class CaptureActivation : IDisposable
         return identity.User!;
     }
 
+    // Compare the kernel's image paths on both sides. The launch path can be
+    // a link (dist is a junction to the SSD install), and the kernel reports
+    // the resolved file for every process alike.
+    private static readonly string? OwnImage = ImagePath(GetCurrentProcess());
+
     private static bool IsOurExecutable(IntPtr hwnd, out uint pid)
     {
         GetWindowThreadProcessId(hwnd, out pid);
@@ -78,12 +83,17 @@ internal sealed class CaptureActivation : IDisposable
         if (process == IntPtr.Zero) return false;
         try
         {
-            var path = new StringBuilder(32768); int length = path.Capacity;
-            return QueryFullProcessImageName(process, 0, path, ref length)
-                && StringComparer.OrdinalIgnoreCase.Equals(path.ToString(), Environment.ProcessPath)
+            return OwnImage is not null
+                && StringComparer.OrdinalIgnoreCase.Equals(ImagePath(process), OwnImage)
                 && HasUserSid(process, UserSid);
         }
         finally { CloseHandle(process); }
+    }
+
+    private static string? ImagePath(IntPtr process)
+    {
+        var path = new StringBuilder(32768); int length = path.Capacity;
+        return QueryFullProcessImageName(process, 0, path, ref length) ? path.ToString() : null;
     }
 
     private static bool HasUserSid(IntPtr process, SecurityIdentifier expected)
@@ -164,6 +174,7 @@ internal sealed class CaptureActivation : IDisposable
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [DllImport("user32.dll")] private static extern bool AllowSetForegroundWindow(uint pid);
     [DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder path, ref int size);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
     [DllImport("advapi32.dll")] private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);

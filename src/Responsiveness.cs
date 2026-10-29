@@ -23,9 +23,45 @@ public static class Responsiveness
     private static Timer? _expiry;
     private static int _generation;
 
-    /// <summary>Task Scheduler defaults to Below Normal. Normalize our own
-    /// interactive tray process before the first capture, not only after a boost.</summary>
-    public static void Initialize() => Apply(ProcessPriorityClass.Normal);
+    /// <summary>Task Scheduler's default launches at Below Normal CPU, Low I/O
+    /// and memory priority 2. Normalize all three before the first capture, not
+    /// only the CPU class: Windows reclaims low-priority pages first, and every
+    /// page-in after idle then queued behind the machine's other disk traffic.
+    /// Existing threads follow the process values.</summary>
+    public static void Initialize()
+    {
+        Apply(ProcessPriorityClass.Normal);
+        try
+        {
+            int memory = 5; // MEMORY_PRIORITY_NORMAL, the highest a process may set
+            SetProcessInformation(GetCurrentProcess(), 0 /* ProcessMemoryPriority */, ref memory, sizeof(int));
+            int io = 2; // IoPriorityNormal
+            NtSetInformationProcess(GetCurrentProcess(), 33 /* ProcessIoPriority */, ref io, sizeof(int));
+        }
+        catch { } // a capture at low I/O priority is still a capture
+    }
+
+    /// <summary>Current memory and I/O priority, for the session log.</summary>
+    public static string Describe()
+    {
+        try
+        {
+            bool memoryOk = GetProcessInformation(GetCurrentProcess(), 0, out int memory, sizeof(int));
+            int status = NtQueryInformationProcess(GetCurrentProcess(), 33, out int io, sizeof(int), out _);
+            return $"memory-priority={(memoryOk ? memory.ToString() : "unknown")} io-priority={(status == 0 ? io.ToString() : "unknown")}";
+        }
+        catch { return "memory-priority=unknown io-priority=unknown"; }
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool SetProcessInformation(IntPtr process, int informationClass, ref int information, int size);
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool GetProcessInformation(IntPtr process, int informationClass, out int information, int size);
+    [System.Runtime.InteropServices.DllImport("ntdll.dll")]
+    private static extern int NtSetInformationProcess(IntPtr process, int informationClass, ref int information, int size);
+    [System.Runtime.InteropServices.DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(IntPtr process, int informationClass, out int information, int size, out int returned);
 
     /// <summary>Raises priority now and restores it when the scope is disposed.</summary>
     public static IDisposable Interactive()

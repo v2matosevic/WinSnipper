@@ -47,6 +47,8 @@ Set-StrictMode -Version Latest
 
 $Root      = Split-Path -Parent $PSScriptRoot
 $DistDir   = Join-Path $Root 'dist'
+# The installed copy lives on the SSD; dist is a junction to it (Use-SsdInstall).
+$InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\WinSnipper'
 $StateDir  = Join-Path $env:APPDATA 'WinSnipper'
 $QuitFlag  = Join-Path $StateDir 'user-quit.flag'
 $TaskName  = 'WinSnipper Keep-Alive'
@@ -141,6 +143,34 @@ function Assert-Exe {
     }
     if (-not $exe) { throw "No WinSnipper executable in $DistDir and the build produced none." }
     return $exe
+}
+
+# B:\Coding is a busy hard drive, and Windows reloads an idle app's evicted
+# code from its exe, so the installed copy lives on the SSD. dist stays the
+# path every task, shortcut and registration names, as a directory junction:
+# no elevation is needed and the elevated task keeps its exact action path.
+# Call only while the app is stopped. Nothing is deleted: the old folder is
+# renamed into the ignored artifacts folder as a rollback copy.
+function Use-SsdInstall {
+    $dist = Get-Item -LiteralPath $DistDir -Force -ErrorAction SilentlyContinue
+    if ($dist -and [string]$dist.LinkType -eq 'Junction') { return }
+    if ($dist -and -not $dist.PSIsContainer) { throw "$DistDir is a file, not a folder. No changes were made." }
+    if (@(Get-ChildItem -LiteralPath $InstallDir -Force -ErrorAction SilentlyContinue).Count) {
+        throw "$InstallDir already holds files; it is not this checkout's junction target. No changes were made."
+    }
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    if ($dist) {
+        $backup = Join-Path $Root ('artifacts\dist-before-ssd-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+        New-Item -ItemType Directory -Force -Path (Split-Path $backup) | Out-Null
+        Move-Item -LiteralPath $DistDir -Destination $backup
+        # The current build keeps running from the SSD even if the next publish fails.
+        foreach ($file in @(Get-ChildItem -LiteralPath $backup -File -Force)) {
+            Copy-Item -LiteralPath $file.FullName -Destination $InstallDir
+        }
+        Write-Step "Previous dist kept at $backup"
+    }
+    New-Item -ItemType Junction -Path $DistDir -Target $InstallDir | Out-Null
+    Write-Ok "dist -> $InstallDir (SSD)"
 }
 
 function Register-CaptureDefault {
@@ -255,6 +285,7 @@ function Invoke-Build {
             Write-Step 'Stopping the running instance so the exe can be replaced.'
             Invoke-Stop -Deliberate:$false
         }
+        Use-SsdInstall
         $csproj = Join-Path $Root 'WinSnipper.csproj'
         $targets = @()
         if ($which -in 'lite', 'both') { $targets += @{ Ocr = $false; Sub = 'lite'; Out = 'WinSnipper.exe' } }
@@ -438,6 +469,9 @@ function Invoke-Status {
     } else {
         $ver = (Get-Item $exe).VersionInfo.FileVersion
         Write-Step "exe      $exe  (v$ver, built $((Get-Item $exe).LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"
+        $dist = Get-Item -LiteralPath $DistDir -Force
+        if ([string]$dist.LinkType -eq 'Junction') { Write-Ok "install  $(@($dist.Target)[0]) (dist is a junction)" }
+        else { Write-Warn "install  $DistDir is a real folder; the next build moves the install to $InstallDir" }
     }
 
     if ($proc) {

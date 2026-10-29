@@ -125,7 +125,7 @@ public partial class App : Application
         // A run that never logs a matching "exit" line was killed or crashed
         // hard; that difference is the whole point of session.log.
         Util.ClearUserQuit();
-        Util.LogSession($"startup version={Util.AppVersion} exe={Environment.ProcessPath}");
+        Util.LogSession($"startup version={Util.AppVersion} exe={Environment.ProcessPath} {Responsiveness.Describe()}");
 
         InstallCrashHandlers();
 
@@ -179,6 +179,8 @@ public partial class App : Application
             await Warmup.RunAsync();
             _snips.PrepareOverlay();
             _recordings.PrepareOverlay();
+            // Then keep what that warmed in RAM; Windows trims idle apps first.
+            Util.LogSession(Residency.Pin());
         }));
 
         _ = CheckForUpdatesLoop();

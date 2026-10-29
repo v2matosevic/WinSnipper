@@ -61,7 +61,7 @@ static class Program
         int code = 0;
         try
         {
-            AtomicWrites(); CaptureNames(); ClipboardRetries(); ThumbnailRecovery(); EditorRecovery(); RecordingFailure();
+            AtomicWrites(); CaptureNames(); ClipboardRetries(); ThumbnailRecovery(); EditorRecovery(); PendingSaves(); RecordingFailure();
             File.WriteAllText(Path.Combine(Out, "checks.json"), System.Text.Json.JsonSerializer.Serialize(new { passed = Passed, privateFixture = Dir }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine($"Reliability: {Passed.Count} checks passed. Fixtures: {Dir}");
         }
@@ -196,6 +196,36 @@ static class Program
         var save = (Task)type.GetMethod("SaveAsync", Private)!.Invoke(editor, new object[] { alternate })!; Wait(save);
         Check(File.Exists(alternate) && (string)type.GetField("_path", Private)!.GetValue(editor)! == alternate && !(bool)type.GetField("_dirty", Private)!.GetValue(editor)!, "save elsewhere recovers editor and updates path after success");
         editor.Hide();
+    }
+
+    static void PendingSaves()
+    {
+        string taken = Path.Combine(Dir, "Snip clash.png"); Util.SavePng(Image, taken);
+        byte[] before = File.ReadAllBytes(taken);
+        string saved = Util.SaveNewPng(Image, taken);
+        Check(saved == Path.Combine(Dir, "Snip clash (2).png") && File.Exists(saved) && before.SequenceEqual(File.ReadAllBytes(taken)),
+            "new snip save moves past a name taken on disk and keeps the existing file");
+        Check(Util.SaveNewPng(Image, saved) == Path.Combine(Dir, "Snip clash (3).png"), "numbered snip names keep counting");
+
+        // The editor opens before a slow first save lands; its own write waits
+        // for that save and uses the name the save settled on.
+        var pending = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string candidate = Path.Combine(Dir, "pending.png"), settled = Path.Combine(Dir, "pending (2).png");
+        var editor = new EditorWindow(candidate, Image, pending.Task) { WindowStartupLocation = WindowStartupLocation.Manual, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+        editor.Show();
+        var type = editor.GetType();
+        type.GetField("_dirty", Private)!.SetValue(editor, true);
+        var save = (Task)type.GetMethod("SaveAsync", Private)!.Invoke(editor, new object?[] { null })!;
+        PumpUntil(() => save.IsCompleted, 300);
+        Check(!save.IsCompleted && !File.Exists(candidate), "editor save waits for a pending first save");
+        Util.SavePng(Image, settled); pending.SetResult(settled);
+        Wait(save);
+        Check((string)type.GetField("_path", Private)!.GetValue(editor)! == settled && !File.Exists(candidate)
+            && !(bool)type.GetField("_dirty", Private)!.GetValue(editor)!, "editor writes to the name the first save settled on");
+        editor.Hide();
+
+        var orphan = new EditorWindow(Path.Combine(Dir, "failed-first.png"), Image, Task.FromException<string>(new IOException("Injected first-save failure")));
+        Check((bool)type.GetField("_dirty", Private)!.GetValue(orphan)!, "failed first save leaves the editor dirty so closing writes the snip");
     }
 
     static void RecordingFailure()

@@ -52,6 +52,10 @@ static class Checks
     struct NativeRect { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")]
     static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+    [DllImport("kernel32.dll")]
+    static extern bool SetProcessInformation(IntPtr process, int informationClass, ref int information, int size);
+    [DllImport("ntdll.dll")]
+    static extern int NtSetInformationProcess(IntPtr process, int informationClass, ref int information, int size);
     static void Assert(bool ok, string message) { if (!ok) throw new Exception(message); }
     static object? Call(object instance, string name, params object[] args) =>
         (instance is App ? typeof(App) : instance.GetType()).GetMethod(name, Instance)!.Invoke(instance, args);
@@ -111,16 +115,21 @@ static class Checks
         Assert(count == 1, "record routed to screenshot");
         Console.WriteLine("PASS: recording dispatch stays separate");
 
-        // A scheduler/host may launch Below Normal. Startup must restore the
-        // intended baseline before any user hotkey is pressed.
+        // A scheduler/host may launch Below Normal with Low I/O and memory
+        // priority 2 (Task Scheduler's default). Startup must restore all three.
         using (var self = Process.GetCurrentProcess())
         {
             self.PriorityClass = ProcessPriorityClass.BelowNormal;
+            int lowMemory = 2, lowIo = 1;
+            SetProcessInformation(self.Handle, 0, ref lowMemory, 4);
+            NtSetInformationProcess(self.Handle, 33, ref lowIo, 4);
+            Assert(Responsiveness.Describe() == "memory-priority=2 io-priority=1", "could not simulate a scheduled-task launch");
             Responsiveness.Initialize();
             self.Refresh(); // Process caches properties changed through another handle.
             Assert(self.PriorityClass == ProcessPriorityClass.Normal, "startup retained background process priority");
+            Assert(Responsiveness.Describe() == "memory-priority=5 io-priority=2", "startup retained low memory or I/O priority");
         }
-        Console.WriteLine("PASS: startup normalizes its own background priority before the first capture");
+        Console.WriteLine("PASS: startup normalizes CPU, memory and I/O priority from a scheduled-task launch");
 
         // Simulate timer expiry without waiting 30 seconds or leaving priority raised.
         using (var old = Responsiveness.Interactive())
@@ -221,7 +230,7 @@ static class Checks
 
     static void CheckCaptureWorker()
     {
-        var workerType = typeof(App).Assembly.GetType("WinSnipper.CaptureWorker")!;
+        var workerType = typeof(App).Assembly.GetType("WinSnipper.CaptureWorker`1")!.MakeGenericType(typeof((BitmapSource, Int32Rect)));
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         int calls = 0, caller = Environment.CurrentManagedThreadId, captureThread = caller;
@@ -331,19 +340,52 @@ static class Checks
         Console.WriteLine("PASS: delayed manager capture reserves selection; repeats rejected; failure releases manager/reservation/boost");
     }
 
-    static void CheckActualCapture()
+    static (BitmapSource, Int32Rect) ActualCapture()
     {
         var workerType = typeof(App).Assembly.GetType("WinSnipper.CaptureWorker")!;
         var task = (Task<(BitmapSource, Int32Rect)>)CallStatic(workerType, "CaptureAsync", new object[] { null! })!;
         PumpUntil(() => task.IsCompleted);
-        var (image, bounds) = task.GetAwaiter().GetResult();
-        Assert(image.IsFrozen && image.PixelWidth == bounds.Width && image.PixelHeight == bounds.Height,
+        return task.GetAwaiter().GetResult();
+    }
+
+    static void CheckActualCapture()
+    {
+        var (image, bounds) = ActualCapture();
+        Assert(image.PixelWidth == bounds.Width && image.PixelHeight == bounds.Height,
             "real background capture pixels/bounds invalid");
         Assert(bounds == ScreenCapture.VirtualScreenBounds(), "capture worker used a different DPI/monitor context");
+        Assert(!image.IsFrozen && image.CheckAccess(), "shared capture surface is not the UI thread's live bitmap");
         var pixel = new byte[4];
         new FormatConvertedBitmap(image, PixelFormats.Bgra32, null, 0).CopyPixels(new Int32Rect(0, 0, 1, 1), pixel, 4, 0);
         Assert(pixel[3] == 255, "real background capture pixel was transparent/unreadable on UI");
-        Console.WriteLine($"PASS: real dedicated STA capture returns frozen UI-readable pixels and physical bounds {bounds}");
+        Console.WriteLine($"PASS: real dedicated STA capture presents UI-readable shared pixels and physical bounds {bounds}");
+
+        // The regression this surface exists for: every new desktop-sized WPF
+        // bitmap costs a full collection, so repeat captures must reuse one.
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        int gen2 = GC.CollectionCount(2);
+        for (int i = 0; i < 4; i++)
+        {
+            var (again, _) = ActualCapture();
+            Assert(ReferenceEquals(again, image), "repeat capture created a new desktop-sized bitmap");
+            Thread.Sleep(250);
+        }
+        Assert(GC.CollectionCount(2) == gen2, $"repeat captures forced {GC.CollectionCount(2) - gen2} full collection(s)");
+        Console.WriteLine("PASS: four repeat captures reuse one surface and force no full collection");
+
+        int side = Math.Min(32, Math.Min(bounds.Width, bounds.Height));
+        var copy = (BitmapSource)CallStatic(typeof(ScreenCapture), "CopyRegion", image, new Int32Rect(0, 0, side, side))!;
+        Assert(copy.IsFrozen && copy.PixelWidth == side && copy.PixelHeight == side && copy.Format == PixelFormats.Bgr32,
+            "selection copy is not an owned frozen image");
+        var source = new WriteableBitmap(side, side, 96, 96, PixelFormats.Bgr32, null);
+        var white = Enumerable.Repeat((byte)255, side * side * 4).ToArray();
+        source.WritePixels(new Int32Rect(0, 0, side, side), white, side * 4, 0);
+        var owned = (BitmapSource)CallStatic(typeof(ScreenCapture), "CopyRegion", source, new Int32Rect(0, 0, side, side))!;
+        source.WritePixels(new Int32Rect(0, 0, side, side), new byte[side * side * 4], side * 4, 0);
+        var after = new byte[side * side * 4];
+        owned.CopyPixels(after, side * 4, 0);
+        Assert(after.All(b => b == 255), "selection copy still reads the source's later pixels");
+        Console.WriteLine("PASS: selection copies are frozen and keep their pixels after the surface changes");
     }
 
     static byte[] Render(Window window)

@@ -65,9 +65,7 @@ public partial class FloatingThumb : Window
         Opacity = 0; // AnimateIn fades it up once it is on the right monitor
         _img = image;
         Thumb.Source = image;
-        Card.ToolTip = isVideo
-            ? $"{IOPath.GetFileName(path)}\nClick to trim · drag into any app to drop the file"
-            : $"{IOPath.GetFileName(path)}  ({image.PixelWidth} × {image.PixelHeight})\nClick to edit · drag into any app to drop the file";
+        UpdateToolTip();
         if (!Util.OcrSupported)
             OcrMenuItem.Visibility = Visibility.Collapsed;
         if (isVideo)
@@ -118,6 +116,7 @@ public partial class FloatingThumb : Window
             await saving.WaitAsync(TimeSpan.FromSeconds(10));
             if (_saving != saving) return _saved;
             _saving = null;
+            AdoptSavedPath(saving);
             _saved = true;
             _saveFailed = false;
             _saveFailureMessage = null;
@@ -146,6 +145,7 @@ public partial class FloatingThumb : Window
             await saving;
             if (_saving != saving) return;
             _saving = null;
+            AdoptSavedPath(saving);
             _saved = true;
             _saveFailed = false;
             _saveFailureMessage = null;
@@ -159,6 +159,18 @@ public partial class FloatingThumb : Window
         }
         if (!_closed) { UpdateDeliveryStatus(); RestartCountdown(); }
     }
+
+    // A new snip's save settles name clashes on its worker; follow the name it used.
+    private void AdoptSavedPath(Task saving)
+    {
+        if (saving is not Task<string> { IsCompletedSuccessfully: true } named || named.Result == _path) return;
+        _path = named.Result;
+        UpdateToolTip();
+    }
+
+    private void UpdateToolTip() => Card.ToolTip = _isVideo
+        ? $"{IOPath.GetFileName(_path)}\nClick to trim · drag into any app to drop the file"
+        : $"{IOPath.GetFileName(_path)}  ({_img.PixelWidth} × {_img.PixelHeight})\nClick to edit · drag into any app to drop the file";
 
     private async Task ObserveCopyAsync(Task<bool> copying)
     {
@@ -194,7 +206,11 @@ public partial class FloatingThumb : Window
         _busy = true;
         try
         {
-            if (_saving is null && !_saved) _saving = Task.Run(() => Util.SavePng(_img, _path, overwrite: false));
+            if (_saving is null && !_saved)
+            {
+                var (image, path) = (_img, _path);
+                _saving = Task.Run(() => Util.SaveNewPng(image, path));
+            }
             await EnsureSavedAsync();
         }
         finally { _busy = false; RestartCountdown(); }
@@ -349,13 +365,13 @@ public partial class FloatingThumb : Window
     private async void OpenEditor()
     {
         if (_busy) return;
-        _busy = true;
-        bool ready;
-        try { ready = await EnsureSavedAsync(); }
-        finally { _busy = false; }
-        if (!ready || _closed) return;
         if (_isVideo)
         {
+            _busy = true;
+            bool ready;
+            try { ready = await EnsureSavedAsync(); }
+            finally { _busy = false; }
+            if (!ready || _closed) return;
             if (_trim is { IsLoaded: true })
             {
                 _trim.Activate();
@@ -374,12 +390,24 @@ public partial class FloatingThumb : Window
             _editor.Activate();
             return;
         }
+        // The editor works from the image in memory, so it opens at once even
+        // while a slow or sleeping disk still holds the first save. Its own
+        // writes wait for that save and use the name it settled on.
         var editorTrace = new PerformanceTrace("editor-open");
-        _editor = new EditorWindow(_path, _img);
+        _editor = new EditorWindow(_path, _img, PendingSave());
         editorTrace.TrackWindow(_editor);
         _editor.Show();
         _editor.Activate();
         Close();
+    }
+
+    private Task<string>? PendingSave()
+    {
+        if (_saving is Task<string> named) return named;
+        if (_saving is { } other) return SettleAsync(other, _path);
+        return _saved ? null : Task.FromException<string>(new IOException("The first save of this snip did not complete."));
+
+        static async Task<string> SettleAsync(Task saving, string path) { await saving; return path; }
     }
 
     private void Edit_Click(object sender, RoutedEventArgs e) => OpenEditor();

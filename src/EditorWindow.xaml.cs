@@ -65,7 +65,10 @@ public partial class EditorWindow : Window
 
     public event Action<BitmapSource>? ImageSaved;
 
-    public EditorWindow(string path, BitmapSource image)
+    // A new snip's first save, when the editor opened before it finished.
+    private Task<string>? _pendingSave;
+
+    public EditorWindow(string path, BitmapSource image, Task<string>? pendingSave = null)
     {
         InitializeComponent();
         DarkWindow.Attach(this, Root);
@@ -100,6 +103,37 @@ public partial class EditorWindow : Window
         // Once layout settles, fit the snip to the viewport (never above 1:1 pixels).
         Loaded += (_, _) => Dispatcher.BeginInvoke(FitToViewport,
             System.Windows.Threading.DispatcherPriority.Loaded);
+
+        if (pendingSave is not null)
+        {
+            _pendingSave = pendingSave;
+            _ = WatchPendingSaveAsync(pendingSave);
+        }
+    }
+
+    // If the first save fails, this editor holds the only copy of the snip,
+    // so it becomes dirty and closing writes the file.
+    private async Task WatchPendingSaveAsync(Task<string> pending)
+    {
+        try { await pending; }
+        catch (Exception ex)
+        {
+            Util.LogCrash("SnipSave", ex);
+            _dirty = true;
+            UpdateTitle();
+            StatusMsg.Text = "Not saved yet. Save, or close to save it.";
+        }
+    }
+
+    // Writes wait for a pending first save, so they never race it and they
+    // use the file name it settled on.
+    private async Task SettlePendingSaveAsync()
+    {
+        if (_pendingSave is not { } pending) return;
+        _pendingSave = null;
+        try { _path = await pending; }
+        catch { _dirty = true; } // the first save failed; this save creates the file
+        UpdateTitle();
     }
 
     // ---------- image / layout ----------
@@ -693,7 +727,7 @@ public partial class EditorWindow : Window
                     : "No text found in the image";
                 return;
             }
-            if (_dirty) await SaveCoreAsync(_path);
+            if (_dirty) await SaveCoreAsync(null);
             if (!await Util.SetClipboardTextAsync(text))
             {
                 StatusMsg.Text = "Text was not copied. Clipboard unavailable; try Copy text again.";
@@ -874,8 +908,11 @@ public partial class EditorWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e) => _ = SaveAsync();
 
-    private async Task<BitmapSource> SaveCoreAsync(string path)
+    /// <param name="destination">Null saves to the snip's own file.</param>
+    private async Task<BitmapSource> SaveCoreAsync(string? destination)
     {
+        await SettlePendingSaveAsync();
+        string path = destination ?? _path;
         var img = Composite();
         await Task.Run(() => Util.SavePng(img, path));
         _path = path;
@@ -901,7 +938,7 @@ public partial class EditorWindow : Window
         try
         {
             StatusMsg.Text = "Saving…";
-            await SaveCoreAsync(_path);
+            await SaveCoreAsync(null);
             StatusMsg.Text = "Saved";
             return _path;
         }
@@ -919,7 +956,7 @@ public partial class EditorWindow : Window
         try
         {
             StatusMsg.Text = "Saving…";
-            await SaveCoreAsync(destination ?? _path);
+            await SaveCoreAsync(destination);
             StatusMsg.Text = "Saved";
         }
         catch (Exception ex) { StatusMsg.Text = $"Not saved. Try Save or Save as: {ex.Message}"; }
@@ -944,7 +981,7 @@ public partial class EditorWindow : Window
         {
             CommitText();
             StatusMsg.Text = "Saving…";
-            var img = _dirty ? await SaveCoreAsync(_path) : Composite();
+            var img = _dirty ? await SaveCoreAsync(null) : Composite();
             if (copyImage)
             {
                 _needsCloseCopy = true;

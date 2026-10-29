@@ -89,6 +89,8 @@ public sealed class PerformanceTrace(string operation, uint? inputTimestamp = nu
         {
             using var process = Process.GetCurrentProcess();
             _steps.Add($"priority={process.PriorityClass}");
+            // Real-use evidence for footprint growth and the pinned working set.
+            _steps.Add($"ws={process.WorkingSet64 >> 20}MB private={process.PrivateMemorySize64 >> 20}MB");
         }
         catch { _steps.Add("priority=unavailable"); }
         _steps.Add($"gc={GC.CollectionCount(0) - _collections[0]}/{GC.CollectionCount(1) - _collections[1]}/{GC.CollectionCount(2) - _collections[2]}");

@@ -61,16 +61,22 @@ public sealed class SnipManager
 
             if (ok && overlay.SelectionPx is { Width: > 0, Height: > 0 } sel)
             {
-                var cropped = new CroppedBitmap(shot, sel);
-                cropped.Freeze();
+                // The selector shows the reusable capture surface, which the
+                // next capture overwrites; everything after this keeps a copy.
+                var cropped = ScreenCapture.CopyRegion(shot, sel);
+
+                // Clipboard first, and no disk access on this thread: the save
+                // folder can be a hard drive that has spun down, and a paste
+                // right after the selection must not wait for it.
+                var copying = Settings.Current.CopyToClipboard ? Util.SetClipboardAsync(cropped) : null;
 
                 string path = NextSnipPath();
                 // Encode and write on a worker. PNG compression of a
                 // full-screen selection is long enough to be felt, and nothing
                 // about it needs to happen before the thumbnail appears —
                 // anything that does need the file waits on this task first.
-                var saving = Task.Run(() => Util.SavePng(cropped, path, overwrite: false));
-                var copying = Settings.Current.CopyToClipboard ? Util.SetClipboardAsync(cropped) : null;
+                // The worker also settles name clashes with files on disk.
+                var saving = Task.Run(() => Util.SaveNewPng(cropped, path));
 
                 // Selection is relative to the captured bitmap; the thumbnail
                 // docks to whichever monitor the selection's centre falls on.
@@ -92,11 +98,13 @@ public sealed class SnipManager
         }
     }
 
+    // Unique within this session without touching the disk; Util.SaveNewPng
+    // moves to the next free name if an older file already has this one.
     private string NextSnipPath()
     {
         string baseName = $"Snip {DateTime.Now:yyyy-MM-dd HH-mm-ss}";
         string path = Path.Combine(Util.SnipsDir, baseName + ".png");
-        for (int i = 2; File.Exists(path) || _usedPaths.Contains(path); i++)
+        for (int i = 2; _usedPaths.Contains(path); i++)
             path = Path.Combine(Util.SnipsDir, $"{baseName} ({i}).png");
         _usedPaths.Add(path);
         return path;

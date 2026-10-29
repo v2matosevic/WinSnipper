@@ -57,6 +57,33 @@ public static class Util
         ReliableIO.Write(path, encoder.Save, overwrite);
     }
 
+    /// <summary>
+    /// Writes a new capture without replacing any existing file. If the name
+    /// is taken on disk, uses the next "name (n).png". Returns the path written.
+    /// </summary>
+    public static string SaveNewPng(BitmapSource image, string path)
+    {
+        string directory = Path.GetDirectoryName(path)!;
+        string baseName = Path.GetFileNameWithoutExtension(path);
+        int next = 2;
+        var numbered = System.Text.RegularExpressions.Regex.Match(baseName, @"^(.*) \((\d+)\)$");
+        if (numbered.Success)
+        {
+            baseName = numbered.Groups[1].Value;
+            next = int.Parse(numbered.Groups[2].Value) + 1;
+        }
+        string candidate = path;
+        for (int attempt = 0; ; attempt++, next++)
+        {
+            if (!File.Exists(candidate))
+            {
+                try { SavePng(image, candidate, overwrite: false); return candidate; }
+                catch (IOException) when (File.Exists(candidate) && attempt < 1000) { }
+            }
+            candidate = Path.Combine(directory, $"{baseName} ({next}).png");
+        }
+    }
+
     /// <summary>Clipboard occasionally throws CLIPBRD_E_CANT_OPEN when another app holds it; retry briefly.</summary>
     private static long _clipboardRevision;
 

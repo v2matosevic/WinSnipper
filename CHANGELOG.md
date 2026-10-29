@@ -1,5 +1,27 @@
 ﻿# Changelog
 
+## Unreleased: 0.9.3 candidate (2026-10-29)
+
+Fix the slow first screenshot after the app has been idle on a busy PC.
+[Diagnosis and verification](docs/PERFORMANCE-2026-10-29.md).
+
+- Reuse one capture surface for the session. Each new desktop-sized WPF bitmap
+  forced a full garbage collection on every screenshot, which dragged the whole
+  heap back from disk when Windows had trimmed the app. Selections are copied out.
+- Normalize memory and I/O priority at startup, not only the CPU class. The
+  keep-alive task launched the app with memory priority 2 and Low I/O priority,
+  so Windows reclaimed its memory first and queued its page-ins behind other
+  disk traffic. Both are logged on the startup line.
+- Keep the warm working set resident with a hard minimum, logged at startup.
+- Copy to the clipboard before any disk access, settle file-name clashes on the
+  save worker, and open the editor from memory while a slow disk finishes the save.
+- Install to `%LOCALAPPDATA%\Programs\WinSnipper` on the SSD, with `dist` as a
+  junction so the elevated task and Windows registration keep their paths.
+  Activation compares kernel image paths on both sides of the IPC.
+- Log working set and private memory with each timed operation.
+
+Includes the unreleased 0.9.2 candidate below. Public stable remains 0.9.1.
+
 ## Unreleased: 0.9.2 candidate (2026-10-24)
 
 - Add per-user Windows screen-capture registration, resident activation and
