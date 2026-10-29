@@ -69,6 +69,28 @@ to 1 MB), while ordinary trimming left a pinned 354 MB working set alone for 90
 s. No memory-cleaner process, service or task was found, and a two-minute
 watch of every process saw no system-wide emptying.
 
+## First real use, same evening
+
+The owner used the installed build from 17:48 to 17:55 and reported "seems
+much faster now". PID 17444's log for that session:
+
+- 10 snips: 93, 146, 153, 245, 264, 330, 342, 570, 1,514 and 2,300 ms
+  (median about 300 ms). None contained a full collection (before: 291 of 301);
+  one gen1 paused 0.8 ms. The first, 19 minutes after start-up, took 570 ms.
+- 5 editor opens: 248, 248, 255 and 287 ms, and one of 36,467 ms.
+- The slow ones stalled outside memory and GC: the 2,300 ms snip in its first
+  render (scene-ready at 2,204 ms), the 1,514 ms snip in the screen copy
+  (1,110 ms, no GC), and the 36 s editor open inside window creation (built in
+  7 ms, HWND at 36,122 ms). Those stages wait on the GPU, the compositor or
+  other processes' window hooks. VALORANT was running at 17:57; whether it was
+  in the foreground during these stalls is unknown. Next suspect, not proven.
+- Footprint: each editor open added roughly 60 to 90 MB of private memory
+  (432, 490, then 573 MB), partly released afterwards; the snip path does not
+  grow it. Private memory was 424 MB and working set 407 MB at 17:57. The editor
+  is where the old process's growth most likely came from.
+
+Ten snips cannot show the long tail. The multi-day comparison below still decides.
+
 ## How to judge it in real use
 
 The deciding number is the first snip after idle. In
@@ -82,9 +104,10 @@ the next line the residency result.
 
 Whether the cold bucket now matches the warm one over days of real work (only
 real use can show it); whether anything on this PC empties working sets, which
-would bypass the pin; what made the old process reach 443 MB private (the snip
-path does not leak; editor, recording, OCR or history remain candidates, and
-the new memory fields will point at them); GPU contention during first render.
+would bypass the pin; why the editor grows private memory by tens of MB per
+open; what caused the render, screen-copy and window-creation stalls in the
+first real session (GPU or compositor contention with a running game is the
+leading guess).
 
 ## Diagnosis evidence
 
