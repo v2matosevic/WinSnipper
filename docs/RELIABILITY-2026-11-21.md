@@ -98,14 +98,23 @@ minimum working set is applied. A locked range stays in physical memory through
 trimming and through `EmptyWorkingSet` (tested). If the lock is refused, the
 old contents are discarded with `MEM_RESET` before each copy.
 
-### 4. "Not responding" three times in a week
+### 4. "Not responding" four times in a week
 
-Windows closed the app as hung on Nov 17 14:11, Nov 20 12:54 and Nov 21 19:22
-(Application Hang 1002), each a few minutes after a snip or editor open. The
-hang reports carry no stack and the app wrote nothing, so the cause is
-**unknown**. The clipboard path above is the leading suspect (it blocks the UI
-thread in proportion to the image, retries with sleeps, and runs right after a
-selection and at editor close); unproven.
+Windows closed the app as hung on Nov 17 14:11, Nov 20 12:54, Nov 21 19:22 and
+Nov 21 19:38 (Application Hang 1002), each a few minutes after a snip or editor
+open. The hang reports carry no stack and the app wrote nothing, so the cause
+is **unknown**. The clipboard path above is the leading suspect (it blocks the
+UI thread in proportion to the image, retries with sleeps, and runs right after
+a selection and at editor close); unproven.
+
+The fourth one happened during this investigation, on the installed 0.9.3
+(PID 33784, 14 minutes old, last logged snip 11 minutes earlier). At 19:37:21,
+91 seconds before it, the agent tried `dotnet-gcdump collect` on that process
+from a non-elevated shell; the tool was refused within 2 seconds (the app runs
+elevated). A refused connection should not affect the target and the three
+earlier hangs happened without it, but it cannot be excluded as a contributor
+to this one. No test process of this session shares a window, mutex or pipe
+with the installed app.
 
 Fix for the evidence gap: `UiWatchdog` writes `ui-stall` lines to `session.log`
 when the UI thread stops answering for 1.5 s, with the stage in progress, and
