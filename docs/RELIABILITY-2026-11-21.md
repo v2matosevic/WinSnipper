@@ -2,10 +2,10 @@
 
 ## Delivery state
 
-Implemented and verified offscreen as version 0.9.4 in source. **Not installed
-and not published**: the running app is still 0.9.3 from October 29, and public
-stable remains 0.9.1. Installing restarts the app, which needs the owner's
-approval. Current state and remaining checks: [handoff](HANDOFF-2026-11-21.md).
+Implemented and verified offscreen as version 0.9.4, and installed locally on
+2026-11-21 20:43 on the owner's approval. **Not published** (public stable
+remains 0.9.1) and not yet judged in real use. Current state, hashes and
+remaining checks: [handoff](HANDOFF-2026-11-21.md).
 
 The owner's report: "it lags, sometimes it doesn't work, sometimes it is slow
 ... video recording is terrible and lagging." Sources used: `session.log`

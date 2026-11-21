@@ -18,9 +18,15 @@ internal static class RuntimeHealth
     private static Timer? _timer;
 
     /// <summary>Framework files this process is running from. Empty when the runtime is bundled.</summary>
+    // IL3000 warns that Location is empty for assemblies inside a single-file
+    // app. These two are not inside ours: a framework-dependent single file
+    // loads them from the shared runtime folder, which is the folder to watch
+    // (checked 2026-11-21 with a single-file publish: both paths are real).
+#pragma warning disable IL3000
     internal static string[] FrameworkProbes() =>
         new[] { typeof(object).Assembly.Location, typeof(System.Windows.Window).Assembly.Location }
             .Where(path => !string.IsNullOrEmpty(path)).ToArray();
+#pragma warning restore IL3000
 
     /// <param name="probes">Files that must keep existing.</param>
     /// <param name="onRemoved">Raised on a pool thread each interval while any probe is missing.</param>
