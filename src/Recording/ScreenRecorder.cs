@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -117,6 +117,7 @@ public sealed class ScreenRecorder
         IRegionCapture? cap = null;
         Bitmap? clean = null;
         ICodecAPI? codec = null;
+        IntPtr mmcss = IntPtr.Zero;
 
         timeBeginPeriod(1); // default 15.6 ms sleep granularity would cap us near 20 fps
         try
@@ -130,8 +131,15 @@ public sealed class ScreenRecorder
             // AVEncMPVGOPSize and then ignore it).
             codec = GetCodecApi(writer, stream);
             Diag($"writer ready in {initClock.ElapsedMilliseconds} ms");
-            using var bmp = new Bitmap(w, h, PixelFormat.Format32bppRgb);
-            using var g = Graphics.FromImage(bmp);
+            // The frame every sample is made from. A DIB with its own device
+            // context: the cursor is drawn straight into it and the encoder
+            // copy reads its memory, with no GDI+ round trip per frame.
+            using var frame = new FrameSurface(w, h);
+
+            // Scheduled like audio/video capture rather than like background
+            // work, so a busy machine does not turn into dropped frames.
+            Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
+            mmcss = AvSetMmThreadCharacteristicsW("Capture", out _);
 
             cap = CreateBestCapture(_region);
             if (cap is not null)
@@ -151,70 +159,106 @@ public sealed class ScreenRecorder
 #endif
             _captureReady.TrySetResult(_excludesControlWindows);
 
+            // What the encoder was last given. An unchanged screen, and every
+            // slot a late frame has to fill, reuse it: no copy, no allocation.
+            IMFMediaBuffer? pixels = null;
+            CursorState lastCursor = default;
+            int unique = 0, lateSlots = 0;
+            long workTicks = 0, maxWorkTicks = 0;
+            string backend = cap?.GetType().Name ?? "Gdi";
+
             _clock.Start();
-            while (!_stop)
+            try
             {
-                if (_paused)
+                while (!_stop)
                 {
-                    Thread.Sleep(40);
-                    continue;
-                }
-
-                long ts = ActiveTicks100();
-                if (firstTs < 0) firstTs = ts;
-                ts -= firstTs;
-
-                if (cap is not null)
-                {
-                    try
+                    if (_paused)
                     {
-                        cap.TryAccumulateInto(clean!); // false = unchanged, clean already holds the frame
-                        CopyBitmap(clean!, bmp);
-                        if (_cursor) DrawCursor(g);
+                        Thread.Sleep(40);
+                        continue;
                     }
-                    catch (Exception ex)
+
+                    long ts = ActiveTicks100();
+                    if (firstTs < 0) firstTs = ts;
+                    ts -= firstTs;
+                    long workStart = Stopwatch.GetTimestamp();
+
+                    bool changed;
+                    if (cap is not null)
                     {
-                        Diag($"capture backend lost, switching to GDI: {ex.Message}");
-                        // The HUD must clear capture affinity BEFORE the first
-                        // compatibility frame, otherwise it can become a black box.
-                        _excludesControlWindows = false;
-                        CaptureModeChanged?.Invoke(false);
-                        cap.Dispose();
-                        cap = null;
-                        CaptureFrame(g, bmp);
+                        try
+                        {
+                            changed = cap.TryAccumulateInto(clean!); // false = unchanged, clean already holds the frame
+                        }
+                        catch (Exception ex)
+                        {
+                            Diag($"capture backend lost, switching to GDI: {ex.Message}");
+                            // The HUD must clear capture affinity BEFORE the first
+                            // compatibility frame, otherwise it can become a black box.
+                            _excludesControlWindows = false;
+                            CaptureModeChanged?.Invoke(false);
+                            cap.Dispose();
+                            cap = null;
+                            backend += "+Gdi";
+                            changed = true;
+                        }
                     }
-                }
-                else
-                {
-                    CaptureFrame(g, bmp);
-                }
+                    else changed = true; // GDI has no change signal: copy the screen every frame
 
-                // Fill every slot that has come due, at least one.
-                long due = Math.Max(slot, ts / frameDur);
-                for (; slot <= due; slot++)
-                {
-                    if (codec is not null && slot % _fps == 0)
-                        ForceKeyFrame(codec);
-                    var sample = CreateSample(bmp, w, h);
-                    Mf.Check(sample.SetSampleTime(slot * frameDur));
-                    Mf.Check(sample.SetSampleDuration(frameDur));
-                    Mf.Check(writer.WriteSample(stream, sample));
-                    Mf.Release(sample);
-                    frames++;
-                }
+                    var cursor = _cursor ? CursorState.Read() : default;
+                    if (pixels is null || changed || !cursor.Equals(lastCursor))
+                    {
+                        if (cap is not null) frame.CopyFrom(clean!);
+                        else frame.CopyScreen(_region.X, _region.Y);
+                        if (_cursor) frame.DrawCursor(cursor, _region.X, _region.Y);
+                        lastCursor = cursor;
+                        Mf.Release(pixels);
+                        pixels = CreateBuffer(frame);
+                        unique++;
+                    }
 
-                // Sleep until the next slot opens (measured in unpaused time).
-                long sleepMs = (firstTs + slot * frameDur - ActiveTicks100()) / 10_000;
-                if (sleepMs > 0) Thread.Sleep((int)sleepMs);
+                    // Fill every slot that has come due, at least one.
+                    long due = Math.Max(slot, ts / frameDur);
+                    if (due > slot) lateSlots += (int)(due - slot);
+                    for (; slot <= due; slot++)
+                    {
+                        if (codec is not null && slot % _fps == 0)
+                            ForceKeyFrame(codec);
+                        Mf.Check(Mf.MFCreateSample(out var sample));
+                        try
+                        {
+                            Mf.Check(sample.AddBuffer(pixels));
+                            Mf.Check(sample.SetSampleTime(slot * frameDur));
+                            Mf.Check(sample.SetSampleDuration(frameDur));
+                            Mf.Check(writer.WriteSample(stream, sample));
+                        }
+                        finally { Mf.Release(sample); }
+                        frames++;
+                    }
+
+                    long work = Stopwatch.GetTimestamp() - workStart;
+                    workTicks += work;
+                    if (work > maxWorkTicks) maxWorkTicks = work;
+
+                    // Sleep until the next slot opens (measured in unpaused time).
+                    long sleepMs = (firstTs + slot * frameDur - ActiveTicks100()) / 10_000;
+                    if (sleepMs > 0) Thread.Sleep((int)sleepMs);
+                }
             }
+            finally { Mf.Release(pixels); }
 
             if (frames > 0)
             {
-                lastFrame = ToBitmapSource(bmp);
+                lastFrame = frame.ToBitmapSource();
                 BeforeFinalize?.Invoke();
                 Mf.Check(writer.Finalize_());
             }
             Diag($"loop exit frames={frames} elapsed={Elapsed.TotalSeconds:0.00}s");
+            // unique = frames with new content; late-slots = frames the loop was
+            // too slow to capture and filled with a repeat (visible stutter).
+            int loops = Math.Max(1, frames - lateSlots);
+            double toMs = 1000.0 / Stopwatch.Frequency;
+            Diag($"stats backend={backend} unique={unique} late-slots={lateSlots} avg-work={workTicks * toMs / loops:0.0}ms max-work={maxWorkTicks * toMs:0.0}ms budget={1000.0 / _fps:0.0}ms");
         }
         catch (Exception ex)
         {
@@ -225,6 +269,7 @@ public sealed class ScreenRecorder
         {
             _captureReady.TrySetResult(false); // startup failures must not strand the UI awaiting readiness
             timeEndPeriod(1);
+            if (mmcss != IntPtr.Zero) AvRevertMmThreadCharacteristics(mmcss);
             cap?.Dispose();
             clean?.Dispose();
             Mf.Release(codec);
@@ -288,88 +333,25 @@ public sealed class ScreenRecorder
         return null;
     }
 
-    private void CaptureFrame(Graphics g, Bitmap bmp)
+    /// <summary>Copies the frame into a new media buffer the encoder can keep reading.</summary>
+    private static IMFMediaBuffer CreateBuffer(FrameSurface frame)
     {
-        g.CopyFromScreen(_region.X, _region.Y, 0, 0, new System.Drawing.Size(bmp.Width, bmp.Height), CopyPixelOperation.SourceCopy);
-        if (_cursor) DrawCursor(g);
-    }
-
-    private static void CopyBitmap(Bitmap src, Bitmap dst)
-    {
-        var r = new Rectangle(0, 0, src.Width, src.Height);
-        var s = src.LockBits(r, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
-        var d = dst.LockBits(r, ImageLockMode.WriteOnly, PixelFormat.Format32bppRgb);
-        try
-        {
-            if (s.Stride == d.Stride)
-            {
-                CopyMemory(d.Scan0, s.Scan0, (UIntPtr)(s.Stride * src.Height));
-            }
-            else
-            {
-                for (int row = 0; row < src.Height; row++)
-                    CopyMemory(d.Scan0 + row * d.Stride, s.Scan0 + row * s.Stride, (UIntPtr)(src.Width * 4));
-            }
-        }
-        finally
-        {
-            src.UnlockBits(s);
-            dst.UnlockBits(d);
-        }
-    }
-
-    private void DrawCursor(Graphics g)
-    {
-        var ci = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
-        if (!GetCursorInfo(ref ci) || ci.flags != 1 /* CURSOR_SHOWING */) return;
-
-        int x = ci.ptScreenPos.X - _region.X;
-        int y = ci.ptScreenPos.Y - _region.Y;
-        if (GetIconInfo(ci.hCursor, out var ii))
-        {
-            x -= ii.xHotspot;
-            y -= ii.yHotspot;
-            if (ii.hbmColor != IntPtr.Zero) DeleteObject(ii.hbmColor);
-            if (ii.hbmMask != IntPtr.Zero) DeleteObject(ii.hbmMask);
-        }
-
-        IntPtr hdc = g.GetHdc();
-        try { DrawIconEx(hdc, x, y, ci.hCursor, 0, 0, 0, IntPtr.Zero, 3 /* DI_NORMAL */); }
-        finally { g.ReleaseHdc(hdc); }
-    }
-
-    /// <summary>Copies the bitmap into a fresh MF sample (time/duration set by the caller).</summary>
-    private static IMFSample CreateSample(Bitmap bmp, int w, int h)
-    {
-        int cb = w * h * 4;
+        int cb = frame.Stride * frame.Height;
         Mf.Check(Mf.MFCreateMemoryBuffer(cb, out var buffer));
-        var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
         try
         {
             Mf.Check(buffer.Lock(out IntPtr dst, IntPtr.Zero, IntPtr.Zero));
-            if (data.Stride == w * 4)
-            {
-                CopyMemory(dst, data.Scan0, (UIntPtr)cb);
-            }
-            else
-            {
-                for (int row = 0; row < h; row++)
-                    CopyMemory(dst + row * w * 4, data.Scan0 + row * data.Stride, (UIntPtr)(w * 4));
-            }
+            CopyMemory(dst, frame.Bits, (UIntPtr)cb);
             Mf.Check(buffer.Unlock());
             Mf.Check(buffer.SetCurrentLength(cb));
-
-            Mf.Check(Mf.MFCreateSample(out var sample));
-            Mf.Check(sample.AddBuffer(buffer));
-            return sample;
+            return buffer;
         }
-        finally
+        catch
         {
-            bmp.UnlockBits(data);
             Mf.Release(buffer);
+            throw;
         }
     }
-
     /// <summary>
     /// H.264/MP4 sink writer (RGB32 top-down input unless <paramref name="inputType"/>
     /// is given), with BeginWriting already called. Prefers the hardware
@@ -523,59 +505,13 @@ public sealed class ScreenRecorder
         }
     }
 
-    private static BitmapSource ToBitmapSource(Bitmap bmp)
-    {
-        IntPtr hBitmap = bmp.GetHbitmap();
-        try
-        {
-            var src = Imaging.CreateBitmapSourceFromHBitmap(
-                hBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-            src.Freeze();
-            return src;
-        }
-        finally
-        {
-            DeleteObject(hBitmap);
-        }
-    }
-
     // ---------- P/Invoke ----------
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT { public int X; public int Y; }
+    [DllImport("avrt.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr AvSetMmThreadCharacteristicsW(string task, out uint index);
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct CURSORINFO
-    {
-        public int cbSize;
-        public int flags;
-        public IntPtr hCursor;
-        public POINT ptScreenPos;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ICONINFO
-    {
-        public bool fIcon;
-        public int xHotspot;
-        public int yHotspot;
-        public IntPtr hbmMask;
-        public IntPtr hbmColor;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern bool GetCursorInfo(ref CURSORINFO pci);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetIconInfo(IntPtr hIcon, out ICONINFO piconinfo);
-
-    [DllImport("user32.dll")]
-    private static extern bool DrawIconEx(IntPtr hdc, int x, int y, IntPtr hIcon,
-        int cx, int cy, int istep, IntPtr flicker, int flags);
-
-    [DllImport("gdi32.dll")]
-    private static extern bool DeleteObject(IntPtr hObject);
-
+    [DllImport("avrt.dll")]
+    private static extern bool AvRevertMmThreadCharacteristics(IntPtr handle);
     [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory")]
     private static extern void CopyMemory(IntPtr dest, IntPtr src, UIntPtr count);
 

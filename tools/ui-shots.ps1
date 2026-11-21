@@ -322,8 +322,11 @@ static class Program
 
     // ---------- helpers ----------
 
+    // OptionalParamBinding: the editor's constructor has optional parameters.
     static Window New(string type, params object[] args) =>
-        (Window)Activator.CreateInstance(Assembly.Load("WinSnipper").GetType(type, true)!, args)!;
+        (Window)Activator.CreateInstance(Assembly.Load("WinSnipper").GetType(type, true)!,
+            BindingFlags.CreateInstance | BindingFlags.Public | BindingFlags.Instance | BindingFlags.OptionalParamBinding,
+            null, args, null)!;
 
     static void Show(Window w)
     {

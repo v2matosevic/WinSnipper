@@ -106,9 +106,18 @@ internal sealed class WgcCapture : IRegionCapture
 
     public bool TryAccumulateInto(Bitmap bmp)
     {
-        using var frame = _framePool.TryGetNextFrame();
-        if (frame is null)
+        var next = _framePool.TryGetNextFrame();
+        if (next is null)
             return false;
+        // The pool queues what the compositor produced since the last call.
+        // Taking one per tick handed the encoder a picture two frames old;
+        // drain to the newest so each recorded frame is the current screen.
+        while (_framePool.TryGetNextFrame() is { } newer)
+        {
+            next.Dispose();
+            next = newer;
+        }
+        using var frame = next;
 
         var access = frame.Surface.As<IDirect3DDxgiInterfaceAccess>();
         var iidTex = typeof(ID3D11Texture2D).GUID;

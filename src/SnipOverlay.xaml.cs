@@ -204,6 +204,7 @@ public partial class SnipOverlay : Window
 
     internal bool ShowScreenshotSelection()
     {
+        using var stage = UiWatchdog.Enter("selector");
         ShowDialog(); // Hide ends the modal loop and restores application focus.
         return _accepted; // DialogResult would close the reusable window.
     }

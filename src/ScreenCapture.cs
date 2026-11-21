@@ -65,10 +65,53 @@ public static class ScreenCapture
                 // A replaced section stays alive while a bitmap still reads it.
                 target = new SharedFrame(section, vs);
             }
+            if (_keepResident) target.Section.KeepResident((long)vs.Width * 4 * vs.Height);
+            // Not locked (quota refused): at least tell Windows the old pixels
+            // are worthless, so a paged-out surface is not read back from disk
+            // only to be overwritten.
+            target.Section.DiscardContents();
             BlitDesktopInto(target.Section, vs, vs.Width, vs.Height);
             _sharedTarget = new SharedFrame(target.Section, vs);
             return _sharedTarget;
         }
+    }
+
+    private static bool _keepResident;
+
+    /// <summary>
+    /// Locks the session capture surface into physical memory, now and for any
+    /// surface that replaces it. The surface is a desktop-sized buffer (24 MB
+    /// at 5760 x 1080) that is touched only at the hotkey; left alone it is
+    /// the first thing Windows pages out of an idle app, and the next screen
+    /// copy then waits for thousands of page reads before it can overwrite
+    /// them (the 0.7 to 3.9 s copies after idle in November's session.log). A
+    /// locked range also survives EmptyWorkingSet, which the hard minimum
+    /// working set does not. Call after <see cref="Residency.Pin"/>: the lock
+    /// counts against the minimum working set. Returns a session-log line.
+    /// </summary>
+    internal static string KeepSharedResident()
+    {
+        lock (SharedGate)
+        {
+            _keepResident = true;
+            if (_sharedTarget is not { } target) return "capture-surface not created yet";
+            long bytes = (long)target.Bounds.Width * 4 * target.Bounds.Height;
+            return target.Section.KeepResident(bytes)
+                ? $"capture-surface locked={bytes >> 20}MB"
+                : $"capture-surface lock-unavailable error={target.Section.LockError}";
+        }
+    }
+
+    /// <summary>True when the current capture surface is locked in memory (tests and diagnostics).</summary>
+    internal static bool SharedIsResident
+    {
+        get { lock (SharedGate) return _sharedTarget?.Section.Locked == true; }
+    }
+
+    /// <summary>The mapped address of the current capture surface, or zero (tests).</summary>
+    internal static IntPtr SharedView
+    {
+        get { lock (SharedGate) return _sharedTarget?.Section.View ?? IntPtr.Zero; }
     }
 
     /// <summary>
@@ -255,8 +298,35 @@ public static class ScreenCapture
     internal sealed class SectionHandle : SafeHandleZeroOrMinusOneIsInvalid
     {
         private long _pressure;
+        private long _viewBytes;
 
         public SectionHandle() : base(ownsHandle: true) { }
+
+        internal IntPtr View { get; private set; }
+        internal bool Locked { get; private set; }
+        internal int LockError { get; private set; }
+
+        /// <summary>Maps the section once and locks that view into physical memory.</summary>
+        internal bool KeepResident(long bytes)
+        {
+            if (Locked) return true;
+            if (View == IntPtr.Zero)
+            {
+                View = MapViewOfFile(handle, FILE_MAP_WRITE, 0, 0, UIntPtr.Zero);
+                if (View == IntPtr.Zero) { LockError = Marshal.GetLastWin32Error(); return false; }
+                _viewBytes = bytes;
+            }
+            Locked = VirtualLock(View, (nuint)bytes);
+            LockError = Locked ? 0 : Marshal.GetLastWin32Error();
+            return Locked;
+        }
+
+        /// <summary>Marks the mapped pixels as not worth reading back from the page file. No-op when locked or unmapped.</summary>
+        internal void DiscardContents()
+        {
+            if (Locked || View == IntPtr.Zero) return;
+            VirtualAlloc(View, (nuint)_viewBytes, MEM_RESET, PAGE_READWRITE);
+        }
 
         public void Account(long bytes)
         {
@@ -266,6 +336,12 @@ public static class ScreenCapture
 
         protected override bool ReleaseHandle()
         {
+            if (View != IntPtr.Zero)
+            {
+                UnmapViewOfFile(View); // also releases the lock
+                View = IntPtr.Zero;
+                Locked = false;
+            }
             bool closed = CloseHandle(handle);
             if (_pressure > 0)
             {
@@ -335,4 +411,21 @@ public static class ScreenCapture
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CloseHandle(IntPtr handle);
+
+    private const uint FILE_MAP_WRITE = 0x0002;
+    private const uint MEM_RESET = 0x00080000;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr MapViewOfFile(IntPtr section, uint access, uint offsetHigh, uint offsetLow, UIntPtr bytes);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnmapViewOfFile(IntPtr address);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool VirtualLock(IntPtr address, nuint bytes);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr VirtualAlloc(IntPtr address, nuint bytes, uint type, uint protect);
 }

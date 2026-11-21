@@ -102,11 +102,14 @@
             </Setter>
         </Style>
 
-        <Style TargetType="CheckBox">
+        <!-- The shared dark controls; the stock ones are white boxes on this background. -->
+        <Style TargetType="CheckBox" BasedOn="{StaticResource Ws.CheckBox}">
             <Setter Property="Foreground" Value="{StaticResource TextFg}"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Focusable" Value="True"/>
         </Style>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource Ws.Combo}"/>
+        <Style TargetType="Slider" BasedOn="{StaticResource Ws.Slider}"/>
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource Ws.ScrollBar}"/>
     </Window.Resources>
 
     <DockPanel>
@@ -154,6 +157,8 @@
                 </ComboBox>
                 <CheckBox x:Name="CursorCheck" Content="Show mouse cursor" Margin="18,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
+            <TextBlock Style="{StaticResource Hint}"
+                       Text="60 fps is smoother for motion and games; 30 fps makes smaller files."/>
             <CheckBox x:Name="AskWhereCheck" Margin="0,10,0,0"
                       Content="Ask where to save each recording when it stops"/>
 

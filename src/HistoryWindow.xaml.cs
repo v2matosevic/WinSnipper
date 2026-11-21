@@ -244,16 +244,11 @@ public partial class HistoryWindow : Window
             if (!File.Exists(entry.Path)) throw new FileNotFoundException("This capture is no longer in the save folder.");
             BitmapSource? image = entry.IsVideo ? null : await Task.Run(() => CaptureHistory.LoadImage(entry.Path));
             if (_closed) return;
-            for (int attempt = 0; ; attempt++)
-            {
-                try
-                {
-                    if (image is not null) Clipboard.SetImage(image);
-                    else Clipboard.SetFileDropList(new System.Collections.Specialized.StringCollection { entry.Path });
-                    break;
-                }
-                catch when (attempt < 3) { await Task.Delay(60); if (_closed) return; }
-            }
+            bool copied = image is not null
+                ? await Util.SetClipboardAsync(image)
+                : await Util.SetClipboardFileAsync(entry.Path);
+            if (_closed) return;
+            if (!copied) throw new InvalidOperationException("the clipboard is busy. Try again.");
             SetStatus(entry.IsVideo ? "Recording copied. Paste it as a file." : "Image copied.");
         }
         catch (Exception ex) { if (!_closed) SetStatus($"Could not copy capture: {ex.Message}"); }

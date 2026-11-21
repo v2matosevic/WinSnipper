@@ -1,5 +1,42 @@
 ﻿# Changelog
 
+## Unreleased: 0.9.4 candidate (2026-11-21)
+
+Fix what three weeks of real use on 0.9.3 showed: failures after a .NET
+update, memory that only grew, copies that froze the window, and slow screen
+copies after idle. [Evidence and verification](docs/RELIABILITY-2026-11-21.md).
+
+- Survive .NET runtime updates. Windows replaces the shared runtime about once a
+  month and empties the old folder while the app is still running from it; after
+  that, tooltips threw for two weeks and the editor failed to open, then crashed.
+  The app now notices the removal and restarts itself once nothing is open, and
+  warm-up loads what the editor, tooltips and popups need ahead of time.
+- Copy images to the clipboard as one CF_DIB prepared off the UI thread. WPF's
+  `Clipboard.SetImage` blocked the window for 280 ms and allocated 308 MB for a
+  full-desktop snip (measured); the new path blocks 0 ms and allocates nothing.
+  A later copy is never overwritten by an earlier, larger one.
+- Give memory back after use: a compacting collection a few seconds after the
+  last capture window closes, and after start-up. Real processes had climbed
+  from 350 MB to over 1 GB and stayed there.
+- Lock the capture surface in physical memory. Paged out while idle, it made the
+  screen copy wait 0.7 to 3.9 s; a locked range also survives working-set emptying.
+- Record UI stalls of 1.5 s or more in `session.log`, with the stage, while they
+  are still happening. Windows closed the app as "not responding" three times in
+  one week and left no cause.
+- Text recognition no longer PNG-encodes a scaled copy on the UI thread; the
+  recognizer gets the pixels directly from a worker.
+- Recording: each frame is the newest the compositor produced (it was two frames
+  old), the capture thread is scheduled as capture work, the frame buffer is a
+  DIB the cursor is drawn into directly, unchanged and repeated frames reuse one
+  buffer, and `recorder.log` reports unique frames, late frames and per-frame
+  cost. The save folder is no longer touched on the UI thread at start.
+- Settings uses the dark check boxes, drop-downs and slider of the other windows.
+- Warm-up builds the editor once, so the first editor open is as quick as the rest.
+- `tools\ui-shots.ps1` works again (the editor constructor gained a parameter);
+  new `tools\test-resilience.ps1`.
+
+Includes the unreleased 0.9.3 candidate below. Public stable remains 0.9.1.
+
 ## Unreleased: 0.9.3 candidate (2026-10-29)
 
 Fix the slow first screenshot after the app has been idle on a busy PC.

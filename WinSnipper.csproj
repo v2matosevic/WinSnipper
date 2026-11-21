@@ -26,12 +26,14 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Pixel loops over clipboard and video frames (ClipboardImage, FrameSurface). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>WinSnipper</RootNamespace>
     <AssemblyName>WinSnipper</AssemblyName>
     <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**;artifacts/**</DefaultItemExcludes>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\icon.ico</ApplicationIcon>
-    <Version>0.9.3</Version>
+    <Version>0.9.4</Version>
     <Authors>Marko Matošević</Authors>
     <Company>Version2</Company>
     <Description>Ultra-lightweight Win+Shift+S replacement: snip, floating thumbnail, annotate, OCR, paste.</Description>

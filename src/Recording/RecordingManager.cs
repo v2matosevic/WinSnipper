@@ -96,8 +96,13 @@ public sealed class RecordingManager
                 return;
             }
 
-            string path = NextRecordingPath();
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            // The save folder can be a hard drive that has spun down; never wait for it on the UI thread.
+            string path = await Task.Run(() =>
+            {
+                string next = NextRecordingPath();
+                Directory.CreateDirectory(Path.GetDirectoryName(next)!);
+                return next;
+            });
 
             var recorder = new ScreenRecorder(path, region, Settings.Current.RecordFps, Settings.Current.RecordCursor);
             try

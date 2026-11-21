@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
 
@@ -94,12 +94,42 @@ public static class Util
     {
         long revision = Interlocked.Increment(ref _clipboardRevision);
         var readSequence = sequenceReader ?? GetClipboardSequenceNumber;
-        uint sequence = readSequence();
-        return ReliableIO.RetryAsync(write, mayContinue: () => revision == Interlocked.Read(ref _clipboardRevision) && sequence == readSequence());
+        return WriteClipboardCoreAsync(write, readSequence, revision, readSequence());
     }
 
-    public static Task<bool> SetClipboardAsync(BitmapSource image) =>
-        WriteClipboardAsync(() => Clipboard.SetImage(image));
+    // The write is abandoned once a newer request of ours, or anybody else's
+    // copy, has replaced what the clipboard held when the request was made.
+    private static Task<bool> WriteClipboardCoreAsync(Action write, Func<uint> readSequence, long revision, uint sequence) =>
+        ReliableIO.RetryAsync(() => { using (UiWatchdog.Enter("clipboard")) write(); },
+            mayContinue: () => revision == Interlocked.Read(ref _clipboardRevision) && sequence == readSequence());
+
+    /// <summary>
+    /// Copies an image. The pixels are prepared on a worker for anything but a
+    /// small snip, so a full-desktop selection never holds the UI thread; the
+    /// request keeps its place in line, so a later copy is never overwritten
+    /// by an earlier, larger one that took longer to prepare.
+    /// </summary>
+    public static async Task<bool> SetClipboardAsync(BitmapSource image)
+    {
+        long revision = Interlocked.Increment(ref _clipboardRevision);
+        uint sequence = GetClipboardSequenceNumber();
+        IntPtr dib;
+        try
+        {
+            bool large = (long)image.PixelWidth * image.PixelHeight > ClipboardImage.InlinePixels;
+            dib = large && image.IsFrozen
+                ? await Task.Run(() => ClipboardImage.BuildDib(image))
+                : ClipboardImage.BuildDib(image);
+        }
+        catch (Exception ex)
+        {
+            LogCrash("ClipboardImage", ex);
+            return false;
+        }
+        bool placed = false;
+        try { return placed = await WriteClipboardCoreAsync(() => ClipboardImage.Place(dib), GetClipboardSequenceNumber, revision, sequence); }
+        finally { if (!placed) ClipboardImage.Free(dib); }
+    }
 
     public static Task<bool> SetClipboardFileAsync(string path) =>
         WriteClipboardAsync(() => Clipboard.SetFileDropList(new System.Collections.Specialized.StringCollection { path }));
@@ -110,8 +140,18 @@ public static class Util
     public static bool TrySetClipboard(BitmapSource image)
     {
         Interlocked.Increment(ref _clipboardRevision);
-        try { Clipboard.SetImage(image); return true; }
-        catch { return false; }
+        IntPtr dib = IntPtr.Zero;
+        try
+        {
+            dib = ClipboardImage.BuildDib(image);
+            ClipboardImage.Place(dib);
+            return true;
+        }
+        catch
+        {
+            ClipboardImage.Free(dib);
+            return false;
+        }
     }
 
     /// <summary>%APPDATA%\WinSnipper — logs, and the deliberate-quit marker.</summary>
@@ -220,23 +260,29 @@ public static class Util
         // we stay inside the engine's max dimension. Oversized images get
         // downscaled to fit instead.
         double maxDim = Windows.Media.Ocr.OcrEngine.MaxImageDimension;
-        BitmapSource src = image;
-        double largest = Math.Max(src.PixelWidth, src.PixelHeight);
+        double largest = Math.Max(image.PixelWidth, image.PixelHeight);
         double scale = Math.Min(2.0, maxDim / largest);
-        if (Math.Abs(scale - 1.0) > 0.05)
-            src = new TransformedBitmap(src, new System.Windows.Media.ScaleTransform(scale, scale));
 
-        using var ms = new MemoryStream();
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(src));
-        encoder.Save(ms);
-        ms.Position = 0;
-
-        using var ras = ms.AsRandomAccessStream();
-        var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(ras);
-        using var soft = await decoder.GetSoftwareBitmapAsync(
-            Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
-            Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied);
+        // Hand the recognizer the pixels directly. This used to PNG-encode the
+        // scaled copy on the UI thread and decode it again: seconds of a frozen
+        // window for a large snip. A frozen image lets a worker do the scaling.
+        Windows.Graphics.Imaging.SoftwareBitmap Prepare()
+        {
+            BitmapSource src = image;
+            if (Math.Abs(scale - 1.0) > 0.05)
+                src = new TransformedBitmap(src, new System.Windows.Media.ScaleTransform(scale, scale));
+            // Bgr32 leaves the fourth byte undefined; the conversion makes it opaque.
+            if (src.Format != System.Windows.Media.PixelFormats.Bgra32 && src.Format != System.Windows.Media.PixelFormats.Pbgra32)
+                src = new FormatConvertedBitmap(src, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+            int width = src.PixelWidth, height = src.PixelHeight, stride = width * 4;
+            var pixels = new byte[stride * height];
+            src.CopyPixels(pixels, stride, 0);
+            return Windows.Graphics.Imaging.SoftwareBitmap.CreateCopyFromBuffer(
+                System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.AsBuffer(pixels),
+                Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, width, height,
+                Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied);
+        }
+        using var soft = image.IsFrozen ? await Task.Run(Prepare) : Prepare();
 
         var result = await engine.RecognizeAsync(soft);
         return string.Join(Environment.NewLine, result.Lines.Select(l => l.Text));

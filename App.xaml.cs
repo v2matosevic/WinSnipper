@@ -88,8 +88,11 @@ public partial class App : Application
             return;
         }
 
-        StartResident();
+        StartResident(afterRestart: e.Args.Contains(RestartedArgument));
     }
+
+    /// <summary>Passed to the process that replaces this one after a runtime update.</summary>
+    internal const string RestartedArgument = "--restarted";
 
     private async void ActivateCaptureAsync(CaptureIntent intent)
     {
@@ -105,13 +108,19 @@ public partial class App : Application
         catch (Exception ex) { Util.LogCrash("Native capture activation", ex); Shutdown(1); }
     }
 
-    private void StartResident(CaptureIntent? initialCapture = null)
+    private void StartResident(CaptureIntent? initialCapture = null, bool afterRestart = false)
     {
 
         // Only the instance that actually owns the mutex may release it — the
         // loser used to keep the handle and throw an unhandled
         // ApplicationException out of OnExit on every double-launch.
         var mutex = new Mutex(true, "WinSnipper_SingleInstance", out bool isNew);
+        if (!isNew && afterRestart)
+        {
+            // The instance that started us is on its way out; take over from it.
+            try { isNew = mutex.WaitOne(TimeSpan.FromSeconds(20)); }
+            catch (AbandonedMutexException) { isNew = true; }
+        }
         if (!isNew)
         {
             mutex.Dispose();
@@ -128,6 +137,12 @@ public partial class App : Application
         Util.LogSession($"startup version={Util.AppVersion} exe={Environment.ProcessPath} {Responsiveness.Describe()}");
 
         InstallCrashHandlers();
+        UiWatchdog.Start(Dispatcher);
+        MemoryTrim.Initialize(() => OnUi(IsWorking, whenUnavailable: true));
+        // Any window closing (thumbnail, editor, trim, history) ends a piece of work.
+        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.UnloadedEvent,
+            new RoutedEventHandler((_, _) => MemoryTrim.Schedule()));
+        RuntimeHealth.Start(RuntimeHealth.FrameworkProbes(), RestartForRuntimeUpdate, TimeSpan.FromMinutes(1));
 
         _tray = new TrayIcon(
             onNewSnip: () => SnipFromMenu(),
@@ -181,6 +196,10 @@ public partial class App : Application
             _recordings.PrepareOverlay();
             // Then keep what that warmed in RAM; Windows trims idle apps first.
             Util.LogSession(Residency.Pin());
+            // The capture surface is locked outright; it counts against the minimum just set.
+            Util.LogSession(ScreenCapture.KeepSharedResident());
+            // Startup and warm-up leave more garbage than any later capture.
+            MemoryTrim.Schedule();
         }));
 
         _ = CheckForUpdatesLoop();
@@ -195,6 +214,58 @@ public partial class App : Application
     }
 
     // ---------- stability ----------
+
+    /// <summary>A capture, a recording, or a window the user is working in. Thumbnails just sit there and do not count.</summary>
+    private bool IsWorking() =>
+        IsCapturing() || Windows.OfType<Window>().Any(w => w.IsVisible && w is not FloatingThumb);
+
+    private bool IsCapturing() =>
+        _recordings.IsRecording || SnipOverlay.IsOpen
+        || Volatile.Read(ref _snipPending) != 0 || Volatile.Read(ref _recordPending) != 0;
+
+    /// <summary>Asks the UI thread a question from a worker, without waiting on a UI thread that is busy.</summary>
+    private bool OnUi(Func<bool> question, bool whenUnavailable)
+    {
+        try
+        {
+            if (Dispatcher.HasShutdownStarted) return whenUnavailable;
+            return Dispatcher.Invoke(question, DispatcherPriority.Background, CancellationToken.None, TimeSpan.FromSeconds(2));
+        }
+        catch { return whenUnavailable; }
+    }
+
+    private int _restarting;
+
+    /// <summary>
+    /// The runtime this process runs on was removed by an update (see
+    /// <see cref="RuntimeHealth"/>). Hand over to a new process as soon as
+    /// nothing is open, so nobody loses work and the gap is a second or two.
+    /// Raised every minute until it happens.
+    /// </summary>
+    private void RestartForRuntimeUpdate()
+    {
+        if (Volatile.Read(ref _restarting) != 0) return;
+        bool idle = OnUi(() => !IsCapturing() && !Windows.OfType<Window>().Any(w => w.IsVisible), whenUnavailable: false);
+        if (!idle || Interlocked.Exchange(ref _restarting, 1) != 0) return;
+        Dispatcher.BeginInvoke((Action)(() =>
+        {
+            try
+            {
+                Util.LogSession("runtime-removed restarting=true");
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!, RestartedArgument)
+                {
+                    UseShellExecute = false,
+                })?.Dispose();
+                Shutdown(0); // OnExit releases the single-instance mutex the new process is waiting for
+            }
+            catch (Exception ex)
+            {
+                // Stay up: a limping app beats none, and the next tick tries again.
+                Util.LogCrash("Runtime restart", ex);
+                Interlocked.Exchange(ref _restarting, 0);
+            }
+        }));
+    }
 
     private void QueueCapture(string operation, uint timestamp, Func<PerformanceTrace, Task> action, uint? receipt = null)
     {

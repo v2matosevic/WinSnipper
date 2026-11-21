@@ -67,5 +67,14 @@ public static class Warmup
 
         var target = new RenderTargetBitmap(side, side, 96, 96, PixelFormats.Pbgra32);
         target.Render(visual);
+
+        // The editor is the next thing a snip opens. Building one now parses
+        // its XAML and loads the framework assemblies it needs, so the first
+        // real open is as quick as the rest, and so it still opens after a
+        // runtime update has removed those assemblies from disk
+        // (RuntimeHealth). Never shown: no window is created.
+        RuntimeHealth.Preload();
+        var editor = new EditorWindow(Path.Combine(Path.GetTempPath(), "WinSnipper warm-up.png"), crop);
+        editor.Close();
     }
 }

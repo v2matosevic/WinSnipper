@@ -26,10 +26,13 @@ test, harnesses).
 | Render editor/trim UI to PNGs | `pwsh -NoProfile -File tools\ui-shots.ps1` (`-Readme` refreshes `docs\images`) |
 | Capture benchmark | `pwsh -NoProfile -File tools\measure-capture.ps1` |
 | Failure regression checks | `pwsh -NoProfile -File tools\test-reliability.ps1` |
+| Long-running health: clipboard, locked surface, memory, runtime removal, stalls | `pwsh -NoProfile -File tools\test-resilience.ps1` (`-Perf` times the clipboard paths) |
 
 Current installed state, final evidence and remaining acceptance/release work:
-[docs/HANDOFF-2026-10-29.md](docs/HANDOFF-2026-10-29.md). Do not infer public
-release availability from the assembly/source version.
+[docs/HANDOFF-2026-11-21.md](docs/HANDOFF-2026-11-21.md). Do not infer public
+release availability, or what is installed, from the assembly/source version.
+Read before any "it is slow / it broke" work: what three weeks of real use
+showed and how to read the logs, [docs/RELIABILITY-2026-11-21.md](docs/RELIABILITY-2026-11-21.md).
 Historical public 0.9.1 verification: [docs/RELEASE-0.9.1.md](docs/RELEASE-0.9.1.md).
 Screenshot shortcut ownership and native app removal boundaries:
 [docs/SCREENSHOT-OWNERSHIP.md](docs/SCREENSHOT-OWNERSHIP.md).
@@ -97,6 +100,16 @@ integration from the WinSnipper version alone.
   UserChoice/hash or claim registration makes it default. The owner chooses in
   Windows Settings. Activation verifies executable/user SID, accepts bounded
   intents only and transfers no paths or images across elevation.
+- Images go to the clipboard through `Util.SetClipboardAsync` (`ClipboardImage`,
+  one CF_DIB built off the UI thread), never WPF's `Clipboard.SetImage`: that
+  blocks the UI thread and allocates about 13 times the image size per copy,
+  which is what grew the process past 1 GB.
+- The app is resident for weeks, and Windows replaces the shared .NET runtime
+  under it monthly. Anything loaded lazily can fail after that. Keep
+  `RuntimeHealth` (restart when idle) working, and when a new window or
+  framework feature joins the common path, make warm-up load it.
+- Tests never write the interactive clipboard. Clipboard checks run on a
+  private window station (`tools\test-resilience.ps1`).
 - Interop: vtable placeholders are named `ReservedN`, never `_VtblGap*` (the
   runtime reads that prefix as a gap directive). Verify GUIDs against the
   Windows SDK headers.

@@ -886,6 +886,7 @@ public partial class EditorWindow : Window
 
     private BitmapSource Composite()
     {
+        using var stage = UiWatchdog.Enter("editor-composite");
         CommitText(); // pending text annotation joins the output
         var cropVis = CropLayer.Visibility;
         CropLayer.Visibility = Visibility.Collapsed;
